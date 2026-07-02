@@ -188,6 +188,15 @@ AGENT_THREAD_TOOL_ERROR_SOURCES = {
     "Permission to run tool denied by user",
 }
 
+AGENT_THREAD_PERMISSION_LABEL_SOURCES = {
+    "Allow for this thread",
+    "Allow for this subagent",
+    "Run without sandbox for this thread",
+    "Run without sandbox for this subagent",
+    "Run without sandbox once",
+    "Always run without sandbox",
+}
+
 AGENT_THREAD_ERROR_CALLOUT_SOURCES = {
     "No credentials are configured for {provider}.",
     "Could not authenticate with {provider}.",
@@ -330,6 +339,83 @@ SETTINGS_FORM_VALIDATION_SOURCES = {
     'An agent named "{}" already exists.',
     'A server named "{}" already exists.',
     'Duplicate {label} "{key}".',
+}
+
+SANDBOX_SETTINGS_DESCRIPTION_SOURCES = {
+    "Customize how the sandbox for the agents tool should behave.",
+    "Each entry is an exact domain (github.com) or a leading-*. subdomain wildcard (*.npmjs.org). IP addresses and local domains are not allowed.",
+    "Each entry must be an absolute path and grants write access to the whole subtree.",
+}
+
+SANDBOX_SETTINGS_VALIDATION_SOURCES = {
+    "Domain cannot be empty.",
+    "IP addresses and local domains aren't allowed; enter a domain like github.com.",
+    "Wildcards are only allowed as a leading label, e.g. *.github.com.",
+    "Not a valid domain. Use a domain like github.com or *.npmjs.org.",
+}
+
+AGENT_THREAD_SANDBOX_STATUS_SOURCES = {
+    "From your settings",
+    "Allowed in this thread",
+    "Write access",
+    "Network access",
+    "Git metadata access",
+    "All paths (unrestricted)",
+    "All domains (unrestricted)",
+}
+
+SEARCH_PLACEHOLDER_SOURCES = {
+    "Replace in project…",
+    "Include: e.g. src/**/*.rs",
+    "Exclude: e.g. vendor/*, *.lock",
+}
+
+FILE_FINDER_PICKER_ACTION_SOURCES = {
+    "Create file ",
+    "Split…",
+    "Left",
+    "Right",
+    "Up",
+    "Down",
+    "Open File",
+}
+
+TEXT_FINDER_PICKER_ACTION_SOURCES = {
+    "Split…",
+    "Left",
+    "Right",
+    "Up",
+    "Down",
+    "Open File",
+    "Open as Tab",
+}
+
+PICKER_PREVIEW_MESSAGE_SOURCES = {
+    "No results to preview",
+}
+
+REMOTE_SERVER_ACTION_SOURCES = {
+    "Connect SSH Server",
+    "Connect Dev Container",
+    "Add WSL Distro",
+    "Open Folder",
+    "View Server Options",
+}
+
+EDITOR_BREAKPOINT_PLACEHOLDER_SOURCES = {
+    "Message to log when a breakpoint is hit. Expressions within {} are interpolated.",
+    "Condition when a breakpoint is hit. Expressions within {} are interpolated.",
+    "How many breakpoint hits to ignore",
+}
+
+EDITOR_BOOKMARK_PLACEHOLDER_SOURCES = {
+    "Enter bookmark label (Optional)",
+}
+
+WORKSPACE_SECURITY_TRUST_ERROR_SOURCES = {
+    "Enter a folder to trust",
+    "Enter an absolute folder path",
+    "Must be a parent folder of the project",
 }
 
 LANGUAGE_MODEL_PROVIDER_MODEL_ERROR_SOURCES = {
@@ -564,6 +650,12 @@ def _rules_for_call(call: str) -> tuple[tuple[int, str, str], ...]:
         return ((0, "button_label", "button_label"),)
     if canonical.endswith(".tooltip") or canonical == "tooltip":
         return ((0, "tooltip", "tooltip"),)
+    if canonical.endswith(".aria_label") or canonical == "aria_label":
+        return ((0, "accessibility_label", "aria_label"),)
+    if canonical.endswith(".with_title") or canonical == "with_title":
+        return ((0, "notification_title", "with_title"),)
+    if canonical.endswith(".more_info_message") or canonical == "more_info_message":
+        return ((0, "notification_more_info", "more_info_message"),)
     if canonical.endswith(".with_link_button") or canonical == "with_link_button":
         return ((0, "link_button", "with_link_button"),)
     if canonical.endswith("ErrorAction::new") or canonical.endswith("ErrorAction::link"):
@@ -722,8 +814,26 @@ def _contextual_rules_for_call(call: str, relative_path: str) -> tuple[tuple[int
                 (1, "setting_title", canonical),
                 (2, "setting_description", canonical),
             )
+        if _is_sandbox_settings_page_path(relative_path) and canonical == "render_list_section":
+            return (
+                (0, "settings_list_section_title", "render_list_section"),
+                (1, "settings_list_section_description", "render_list_section"),
+            )
         if canonical == "new_input":
             return ((0, "setting_placeholder", "new_input.placeholder"),)
+    if _is_thread_search_bar_path(relative_path) and canonical == "nav_button":
+        return ((3, "tooltip", "nav_button"),)
+    if _is_agent_thread_view_path(relative_path):
+        if canonical == "render_sandbox_policy_section":
+            return ((0, "sandbox_status_section", "render_sandbox_policy_section"),)
+        if canonical == "sandbox_status_group":
+            return ((0, "sandbox_status_group", "sandbox_status_group"),)
+        if canonical == "sandbox_message_row":
+            return ((0, "sandbox_status_message", "sandbox_message_row"),)
+    if _is_remote_servers_path(relative_path) and canonical.endswith("render_action_item"):
+        return ((2, "remote_server_action", "render_action_item"),)
+    if _is_editor_path(relative_path) and canonical.endswith("add_edit_block"):
+        return ((2, "placeholder", "add_edit_block"),)
     if _is_language_model_provider_path(relative_path):
         if canonical.endswith("ApiKeyEditor::new"):
             return ((2, "placeholder", "ApiKeyEditor::new.placeholder"),)
@@ -1572,6 +1682,13 @@ def _allowed_literal_rules_for_path(
                 "AgentThread.tool_error",
             )
         )
+        rules.append(
+            (
+                AGENT_THREAD_PERMISSION_LABEL_SOURCES,
+                "permission_option",
+                "AgentThread.permission_option",
+            )
+        )
     if _is_agent_thread_view_path(relative_path):
         rules.append(
             (
@@ -1632,6 +1749,93 @@ def _allowed_literal_rules_for_path(
                 SETTINGS_FORM_VALIDATION_SOURCES,
                 "settings_form_validation",
                 "SettingsForm.validation",
+            )
+        )
+    if _is_sandbox_settings_page_path(relative_path):
+        rules.append(
+            (
+                SANDBOX_SETTINGS_DESCRIPTION_SOURCES,
+                "settings_page_description",
+                "SandboxSettings.description",
+            )
+        )
+        rules.append(
+            (
+                SANDBOX_SETTINGS_VALIDATION_SOURCES,
+                "settings_form_validation",
+                "SandboxSettings.validation",
+            )
+        )
+    if _is_agent_thread_view_path(relative_path):
+        rules.append(
+            (
+                AGENT_THREAD_SANDBOX_STATUS_SOURCES,
+                "sandbox_status_message",
+                "AgentThread.sandbox_status",
+            )
+        )
+    if _is_search_path(relative_path):
+        rules.append(
+            (
+                SEARCH_PLACEHOLDER_SOURCES,
+                "placeholder",
+                "Search.placeholder",
+            )
+        )
+    if _is_file_finder_path(relative_path):
+        rules.append(
+            (
+                FILE_FINDER_PICKER_ACTION_SOURCES,
+                "picker_action",
+                "FileFinder.picker_action",
+            )
+        )
+    if _is_text_finder_delegate_path(relative_path):
+        rules.append(
+            (
+                TEXT_FINDER_PICKER_ACTION_SOURCES,
+                "picker_action",
+                "TextFinder.picker_action",
+            )
+        )
+    if _is_picker_preview_path(relative_path):
+        rules.append(
+            (
+                PICKER_PREVIEW_MESSAGE_SOURCES,
+                "picker_preview_message",
+                "PickerPreview.message",
+            )
+        )
+    if _is_remote_servers_path(relative_path):
+        rules.append(
+            (
+                REMOTE_SERVER_ACTION_SOURCES,
+                "remote_server_action",
+                "RemoteServer.action",
+            )
+        )
+    if _is_editor_path(relative_path):
+        rules.append(
+            (
+                EDITOR_BREAKPOINT_PLACEHOLDER_SOURCES,
+                "placeholder",
+                "Editor.breakpoint_placeholder",
+            )
+        )
+    if _is_editor_bookmarks_path(relative_path):
+        rules.append(
+            (
+                EDITOR_BOOKMARK_PLACEHOLDER_SOURCES,
+                "placeholder",
+                "Bookmarks.placeholder",
+            )
+        )
+    if _is_workspace_security_modal_path(relative_path):
+        rules.append(
+            (
+                WORKSPACE_SECURITY_TRUST_ERROR_SOURCES,
+                "workspace_security_error",
+                "SecurityModal.trust_scope_error",
             )
         )
     if _is_language_model_provider_path(relative_path):
@@ -2422,6 +2626,10 @@ def _is_settings_ui_path(relative_path: str) -> bool:
     return relative_path.startswith("crates/settings_ui/src/")
 
 
+def _is_sandbox_settings_page_path(relative_path: str) -> bool:
+    return relative_path == "crates/settings_ui/src/pages/sandbox_settings.rs"
+
+
 def _is_tool_permissions_setup_path(relative_path: str) -> bool:
     return relative_path == "crates/settings_ui/src/pages/tool_permissions_setup.rs"
 
@@ -2479,6 +2687,10 @@ def _is_agent_ui_root_path(relative_path: str) -> bool:
 
 def _is_agent_thread_view_path(relative_path: str) -> bool:
     return relative_path == "crates/agent_ui/src/conversation_view/thread_view.rs"
+
+
+def _is_thread_search_bar_path(relative_path: str) -> bool:
+    return relative_path == "crates/agent_ui/src/conversation_view/thread_search_bar.rs"
 
 
 def _is_agent_thread_import_path(relative_path: str) -> bool:
@@ -2583,12 +2795,40 @@ def _is_project_panel_path(relative_path: str) -> bool:
     return relative_path == "crates/project_panel/src/project_panel.rs"
 
 
+def _is_remote_servers_path(relative_path: str) -> bool:
+    return relative_path == "crates/recent_projects/src/remote_servers.rs"
+
+
 def _is_collab_panel_path(relative_path: str) -> bool:
     return relative_path == "crates/collab_ui/src/collab_panel.rs"
 
 
 def _is_search_path(relative_path: str) -> bool:
     return relative_path == "crates/search/src/search.rs"
+
+
+def _is_file_finder_path(relative_path: str) -> bool:
+    return relative_path == "crates/file_finder/src/file_finder.rs"
+
+
+def _is_text_finder_delegate_path(relative_path: str) -> bool:
+    return relative_path == "crates/search/src/text_finder/delegate.rs"
+
+
+def _is_picker_preview_path(relative_path: str) -> bool:
+    return relative_path == "crates/picker/src/preview.rs"
+
+
+def _is_editor_path(relative_path: str) -> bool:
+    return relative_path == "crates/editor/src/editor.rs"
+
+
+def _is_editor_bookmarks_path(relative_path: str) -> bool:
+    return relative_path == "crates/editor/src/bookmarks.rs"
+
+
+def _is_workspace_security_modal_path(relative_path: str) -> bool:
+    return relative_path == "crates/workspace/src/security_modal.rs"
 
 
 def _is_ui_utils_path(relative_path: str) -> bool:

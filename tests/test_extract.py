@@ -2537,6 +2537,234 @@ class ExtractTests(unittest.TestCase):
             {"User"},
         )
 
+    def test_extracts_zed_1_9_sandbox_settings_page_literals(self) -> None:
+        source = "\n".join(
+            [
+                'const SANDBOX_DISCLAIMER: &str = "Customize how the sandbox for the agents tool should behave.";',
+                'const DOMAINS_DESCRIPTION: &str = "Each entry is an exact domain (github.com) or a leading-*. subdomain wildcard (*.npmjs.org). IP addresses and local domains are not allowed.";',
+                'const WRITE_PATHS_DESCRIPTION: &str =',
+                '    "Each entry must be an absolute path and grants write access to the whole subtree.";',
+                "fn render() {",
+                '    render_list_section("Allowed Domains", DOMAINS_DESCRIPTION, rows, add_input, border);',
+                '    render_list_section("Writable Paths", WRITE_PATHS_DESCRIPTION, rows, add_input, border);',
+                "}",
+                "fn canonicalize_host(error: HostPatternError) -> Result<String, String> {",
+                "    match error {",
+                '        HostPatternError::Empty => "Domain cannot be empty.".to_string(),',
+                '        HostPatternError::IpLiteral(_) => "IP addresses and local domains aren\'t allowed; enter a domain like github.com.".to_string(),',
+                '        HostPatternError::InvalidWildcard(_) => "Wildcards are only allowed as a leading label, e.g. *.github.com.".to_string(),',
+                '        HostPatternError::Invalid { .. } => "Not a valid domain. Use a domain like github.com or *.npmjs.org.".to_string(),',
+                "    }",
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/settings_ui/src/pages/sandbox_settings.rs",
+        )
+
+        by_source = {occurrence.source: occurrence for occurrence in occurrences}
+        self.assertEqual(
+            set(by_source),
+            {
+                "Customize how the sandbox for the agents tool should behave.",
+                "Each entry is an exact domain (github.com) or a leading-*. subdomain wildcard (*.npmjs.org). IP addresses and local domains are not allowed.",
+                "Each entry must be an absolute path and grants write access to the whole subtree.",
+                "Allowed Domains",
+                "Writable Paths",
+                "Domain cannot be empty.",
+                "IP addresses and local domains aren't allowed; enter a domain like github.com.",
+                "Wildcards are only allowed as a leading label, e.g. *.github.com.",
+                "Not a valid domain. Use a domain like github.com or *.npmjs.org.",
+            },
+        )
+        self.assertEqual(by_source["Allowed Domains"].kind, "settings_list_section_title")
+        self.assertEqual(
+            by_source["Domain cannot be empty."].kind,
+            "settings_form_validation",
+        )
+
+    def test_extracts_zed_1_9_helper_forwarded_ui_literals(self) -> None:
+        cases = [
+            (
+                "crates/agent_ui/src/conversation_view/thread_search_bar.rs",
+                "\n".join(
+                    [
+                        "fn render() {",
+                        '    nav_button("thread-search-prev", IconName::ChevronLeft, false, "Previous Match", &SelectPreviousThreadMatch, focus);',
+                        '    nav_button("thread-search-next", IconName::ChevronRight, false, "Next Match", &SelectNextThreadMatch, focus);',
+                        '    nav_button("thread-search-dismiss", IconName::Close, false, "Close Search", &DismissThreadSearch, focus);',
+                        "}",
+                    ]
+                ),
+                {"Previous Match", "Next Match", "Close Search"},
+            ),
+            (
+                "crates/recent_projects/src/remote_servers.rs",
+                "\n".join(
+                    [
+                        "fn render_match(&self) {",
+                        '    self.render_action_item(ix, IconName::Plus, "Connect SSH Server", selected);',
+                        '    self.render_action_item(ix, IconName::Plus, "Connect Dev Container", selected);',
+                        '    self.render_action_item(ix, IconName::Plus, "Add WSL Distro", selected);',
+                        '    self.render_action_item(ix, IconName::Plus, "Open Folder", selected);',
+                        '    self.render_action_item(ix, IconName::Settings, "View Server Options", selected);',
+                        "}",
+                    ]
+                ),
+                {
+                    "Connect SSH Server",
+                    "Connect Dev Container",
+                    "Add WSL Distro",
+                    "Open Folder",
+                    "View Server Options",
+                },
+            ),
+            (
+                "crates/editor/src/editor.rs",
+                "\n".join(
+                    [
+                        "fn add_edit_breakpoint_block(&mut self, edit_action: BreakpointPromptEditAction) {",
+                        "    let placeholder_text = match edit_action {",
+                        '        BreakpointPromptEditAction::Log => "Message to log when a breakpoint is hit. Expressions within {} are interpolated.",',
+                        '        BreakpointPromptEditAction::Condition => "Condition when a breakpoint is hit. Expressions within {} are interpolated.",',
+                        '        BreakpointPromptEditAction::HitCondition => "How many breakpoint hits to ignore",',
+                        "    };",
+                        "    self.add_edit_block(anchor, base_text, placeholder_text, confirm, cancel, window, cx);",
+                        "}",
+                    ]
+                ),
+                {
+                    "Message to log when a breakpoint is hit. Expressions within {} are interpolated.",
+                    "Condition when a breakpoint is hit. Expressions within {} are interpolated.",
+                    "How many breakpoint hits to ignore",
+                },
+            ),
+        ]
+
+        for relative_path, source, expected in cases:
+            with self.subTest(relative_path=relative_path):
+                occurrences = extract_ui_strings_from_source(source, relative_path=relative_path)
+                self.assertEqual({occurrence.source for occurrence in occurrences}, expected)
+
+    def test_extracts_zed_1_9_const_placeholders_and_picker_labels(self) -> None:
+        cases = [
+            (
+                "crates/search/src/search.rs",
+                "\n".join(
+                    [
+                        'const REPLACE_PLACEHOLDER: &str = "Replace in project…";',
+                        'const INCLUDE_PLACEHOLDER: &str = "Include: e.g. src/**/*.rs";',
+                        'const EXCLUDE_PLACEHOLDER: &str = "Exclude: e.g. vendor/*, *.lock";',
+                    ]
+                ),
+                {
+                    "Replace in project…",
+                    "Include: e.g. src/**/*.rs",
+                    "Exclude: e.g. vendor/*, *.lock",
+                },
+            ),
+            (
+                "crates/file_finder/src/file_finder.rs",
+                "\n".join(
+                    [
+                        'message.push_plain("Create file ");',
+                        'let actions = vec!["Split…", "Left", "Right", "Up", "Down", "Open File"];',
+                    ]
+                ),
+                {"Create file ", "Split…", "Left", "Right", "Up", "Down", "Open File"},
+            ),
+            (
+                "crates/search/src/text_finder/delegate.rs",
+                'let actions = vec!["Split…", "Left", "Right", "Up", "Down", "Open File", "Open as Tab"];',
+                {"Split…", "Left", "Right", "Up", "Down", "Open File", "Open as Tab"},
+            ),
+            (
+                "crates/picker/src/preview.rs",
+                'message.push_plain("No results to preview");',
+                {"No results to preview"},
+            ),
+        ]
+
+        for relative_path, source, expected in cases:
+            with self.subTest(relative_path=relative_path):
+                occurrences = extract_ui_strings_from_source(source, relative_path=relative_path)
+                self.assertEqual({occurrence.source for occurrence in occurrences}, expected)
+
+    def test_extracts_zed_1_9_agent_permission_labels_from_local_bindings(self) -> None:
+        source = "\n".join(
+            [
+                "fn authorize(&self, cx: &mut App) {",
+                "    let allow_thread_label = if self.is_subagent(cx) {",
+                '        "Allow for this subagent"',
+                "    } else {",
+                '        "Allow for this thread"',
+                "    };",
+                "    let options = acp_thread::PermissionOptions::Flat(vec![",
+                "        acp::PermissionOption::new(id, allow_thread_label, acp::PermissionOptionKind::AllowAlways),",
+                "    ]);",
+                "}",
+                "fn authorize_fallback(&self, cx: &mut App) {",
+                "    let allow_thread_label = if self.is_subagent(cx) {",
+                '        "Run without sandbox for this subagent"',
+                "    } else {",
+                '        "Run without sandbox for this thread"',
+                "    };",
+                "    let options = acp_thread::PermissionOptions::Flat(vec![",
+                "        acp::PermissionOption::new(id, allow_thread_label, acp::PermissionOptionKind::AllowAlways),",
+                "    ]);",
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/agent/src/thread.rs",
+        )
+
+        self.assertEqual(
+            {occurrence.source for occurrence in occurrences},
+            {
+                "Allow for this subagent",
+                "Allow for this thread",
+                "Run without sandbox for this subagent",
+                "Run without sandbox for this thread",
+            },
+        )
+
+    def test_extracts_accessibility_labels_and_notification_fluent_copy(self) -> None:
+        source = "\n".join(
+            [
+                "fn render() {",
+                '    IconButton::new("reset", IconName::Undo).aria_label("Reset to Default");',
+                '    h_flex().role(Role::Group).aria_label("Settings Content");',
+                '    MessageNotification::new("You can add `zed` to your PATH manually.", cx)',
+                '        .with_title("Couldn\'t install the Zed CLI")',
+                '        .more_info_message("Show me how");',
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/install_cli/src/install_cli_binary.rs",
+        )
+
+        by_source = {occurrence.source: occurrence for occurrence in occurrences}
+        self.assertEqual(
+            set(by_source),
+            {
+                "Reset to Default",
+                "Settings Content",
+                "You can add `zed` to your PATH manually.",
+                "Couldn't install the Zed CLI",
+                "Show me how",
+            },
+        )
+        self.assertEqual(by_source["Reset to Default"].kind, "accessibility_label")
+        self.assertEqual(by_source["Couldn't install the Zed CLI"].kind, "notification_title")
+
     def test_local_tuple_binding_resolution_uses_matching_element_only(self) -> None:
         source = "\n".join(
             [

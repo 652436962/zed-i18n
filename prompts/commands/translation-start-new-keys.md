@@ -58,7 +58,7 @@ Output a 5–8 line summary of findings (in Korean): detected target languages, 
 - Preserve every existing final translation file exactly. Treat `translations/<LANG>.json` as read-only reference material.
 - Save each language's new translations to `translations/<LANG>.<MODEL_SLUG>.json`.
 - Ensure `translations/<LANG>.<MODEL_SLUG>.json` contains only new keys from this run, never pre-existing translations.
-- For each language, use one translation sub-agent for that language's batches.
+- For each language, use one translation sub-agent per generated batch for that language.
 - For each language, use a separate validation sub-agent after the new-key-only artifact is created, so translation generation and review do not contaminate each other.
 - The validation sub-agent must review with the language style guide, translation glossary/dictionary material, and existing translations as references.
 - Never use `--all`. This run must stay missing-only for every language.
@@ -102,32 +102,31 @@ After each preparation step, read `reports/translation-runs/<LANG>/<MODEL_SLUG>/
 
 If `source_count` is `0` for a language, mark that language as complete with no new work and do not create or modify `translations/<LANG>.<MODEL_SLUG>.json` for that language.
 
-### 3. Dispatch One Translation Sub-Agent Per Language
+### 3. Dispatch One Translation Sub-Agent Per Language Batch
 
-For every language with `source_count > 0`, spawn exactly one translation sub-agent for that language.
+For every language with `source_count > 0`, read that language's `plan.json` and spawn exactly one translation sub-agent for each generated batch.
 
-Give that translation sub-agent:
+Give each translation sub-agent:
 
-- every generated `reports/translation-runs/<LANG>/<MODEL_SLUG>/prompts/batch-XXX.md`
+- exactly one generated `reports/translation-runs/<LANG>/<MODEL_SLUG>/prompts/batch-XXX.md`
 - `prompts/translation/<LANG>.md`
 - relevant glossary/dictionary references under `prompts/translation/glossary/` if they exist
 - the existing `translations/<LANG>.json` as translation-memory and style reference only
 
 Tell it:
 
-- You are translating only newly accepted, missing keys for `<LANG>`.
-- Process this language's batch prompts sequentially.
-- Follow each batch prompt verbatim.
+- You are translating only newly accepted, missing keys for `<LANG>` in batch `batch-XXX`.
+- Follow the assigned batch prompt verbatim.
 - Use any `context_group` data as read-only sibling/flow/composition context.
 - If `kind` is `settings_enum_variant_label` or `settings_enum_discriminant_label`, treat the source as a visible settings option label. Use setting/context siblings and any `source_comment`; do not apply a glossary row just because the English token matches.
 - Use the style guide, glossary/dictionary references, and existing translations to keep terminology and tone consistent.
-- Write each result JSON only to the `output.result_file` path declared inside that batch prompt.
+- Write the result JSON only to the `output.result_file` path declared inside the assigned batch prompt.
 - Do not touch anything else.
 - Do not modify `translations/<LANG>.json`, `translations/<LANG>.<MODEL_SLUG>.json`, the manifest, prompt files, or batch files.
 
-You may run the per-language translation sub-agents in parallel if the environment can handle it. Keep each language isolated: one translation sub-agent owns one language.
+You may run the per-language and per-batch translation sub-agents in parallel if the environment can handle it. Keep each batch isolated: one translation sub-agent owns one language batch.
 
-If a result file is missing or invalid, re-use that language's existing translation sub-agent when possible and ask it to fix only the failed batch. Do not spawn extra translation sub-agents for the same language unless the existing one is unavailable or failed irrecoverably.
+If a result file is missing or invalid, re-use that batch's existing translation sub-agent when possible and ask it to fix only the failed batch. Do not spawn extra translation sub-agents for the same language batch unless the existing one is unavailable or failed irrecoverably.
 
 ### 4. Create New-Key-Only Review Artifacts
 
