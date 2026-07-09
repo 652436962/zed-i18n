@@ -45,7 +45,7 @@ CALL_RULES: dict[str, tuple[int, str, str]] = {
     "MenuItem::action": (0, "menu_item", "MenuItem::action"),
     "Menu::new": (0, "menu", "Menu::new"),
     "ContextMenuEntry::new": (0, "context_menu_entry", "ContextMenuEntry::new"),
-    "ConfiguredApiCard::new": (0, "configured_api_card_label", "ConfiguredApiCard::new"),
+    "ConfiguredApiCard::new": (1, "configured_api_card_label", "ConfiguredApiCard::new"),
     "DropdownMenu::new": (1, "dropdown_label", "DropdownMenu::new"),
     "Label::new": (0, "label", "Label::new"),
     "Headline::new": (0, "headline", "Headline::new"),
@@ -259,6 +259,8 @@ ADD_LLM_PROVIDER_VALIDATION_ERROR_SOURCES = {
     "API URL cannot be empty",
     "API Key cannot be empty",
     "Model Names must be unique",
+    "Model Name cannot be empty",
+    "{name} must be a number",
 }
 
 CONFIGURE_CONTEXT_SERVER_MODAL_DESCRIPTION_SOURCES = {
@@ -345,6 +347,7 @@ SANDBOX_SETTINGS_DESCRIPTION_SOURCES = {
     "Customize how the sandbox for the agents tool should behave.",
     "Each entry is an exact domain (github.com) or a leading-*. subdomain wildcard (*.npmjs.org). IP addresses and local domains are not allowed.",
     "Each entry must be an absolute path and grants write access to the whole subtree.",
+    "Each entry must be an absolute path and grants write access to the whole subtree, except protected Git metadata.",
 }
 
 SANDBOX_SETTINGS_VALIDATION_SOURCES = {
@@ -420,6 +423,23 @@ WORKSPACE_SECURITY_TRUST_ERROR_SOURCES = {
 
 LANGUAGE_MODEL_PROVIDER_MODEL_ERROR_SOURCES = {
     "Failed to fetch model from API: {error}",
+}
+
+LANGUAGE_MODEL_PROVIDER_INLINE_TITLE_SOURCES = {
+    "Configure ChatGPT",
+}
+
+LANGUAGE_MODEL_PROVIDER_INLINE_DESCRIPTION_SOURCES = {
+    "Sign in with your ChatGPT Plus or Pro subscription to use OpenAI models in Zed's agent.",
+    "Sign in to have access to Zed's complete agentic experience with hosted models.",
+    "You have access to Zed's hosted models through your Pro subscription.",
+    "You have access to Zed's hosted models through your Pro trial.",
+    "You have access to Zed's hosted models through your Student subscription.",
+    "You have access to Zed's hosted models through your organization.",
+    "Zed's hosted models are disabled by your organization's configuration.",
+    "You have access to Zed's hosted models through your VIP subscription.",
+    "Subscribe for access to Zed's hosted models. Start with a 14 day free trial.",
+    "Subscribe for access to Zed's hosted models.",
 }
 
 PICKER_DELEGATE_PLACEHOLDER_SOURCES = {
@@ -631,6 +651,8 @@ def _rules_for_call(call: str) -> tuple[tuple[int, str, str], ...]:
         return ((0, "toggle_button", "ToggleButtonSimple::new"),)
     if canonical == "ViewWidth::new" or canonical.endswith("::ViewWidth::new"):
         return ((1, "debugger_memory_width", "ViewWidth::new"),)
+    if canonical == "InlineDescription::Text" or canonical.endswith("::InlineDescription::Text"):
+        return ((0, "inline_description", "InlineDescription::Text"),)
     if canonical.endswith(".set_placeholder_text") or canonical == "set_placeholder_text":
         return ((0, "placeholder", "set_placeholder_text"),)
     if canonical.endswith(".with_placeholder") or canonical == "with_placeholder":
@@ -810,10 +832,17 @@ def _contextual_rules_for_call(call: str, relative_path: str) -> tuple[tuple[int
                 (2, "setting_description", "render_settings_item_layout"),
             )
         if canonical in {"render_form_field", "render_kv_section"}:
+            if _is_llm_providers_page_path(relative_path) and canonical == "render_form_field":
+                return (
+                    (0, "setting_title", canonical),
+                    (1, "setting_description", canonical),
+                )
             return (
                 (1, "setting_title", canonical),
                 (2, "setting_description", canonical),
             )
+        if _is_llm_providers_page_path(relative_path) and canonical == "render_capability_checkbox":
+            return ((2, "setting_checkbox_label", "render_capability_checkbox"),)
         if _is_sandbox_settings_page_path(relative_path) and canonical == "render_list_section":
             return (
                 (0, "settings_list_section_title", "render_list_section"),
@@ -830,6 +859,13 @@ def _contextual_rules_for_call(call: str, relative_path: str) -> tuple[tuple[int
             return ((0, "sandbox_status_group", "sandbox_status_group"),)
         if canonical == "sandbox_message_row":
             return ((0, "sandbox_status_message", "sandbox_message_row"),)
+    if _is_agent_thread_view_path(relative_path) or _is_sandbox_status_tooltip_path(relative_path):
+        if canonical == "SandboxSection::new":
+            return ((0, "sandbox_status_section", "SandboxSection::new"),)
+        if canonical == "SandboxGroup::new":
+            return ((0, "sandbox_status_group", "SandboxGroup::new"),)
+        if canonical == "SandboxRow::message":
+            return ((0, "sandbox_status_message", "SandboxRow::message"),)
     if _is_remote_servers_path(relative_path) and canonical.endswith("render_action_item"):
         return ((2, "remote_server_action", "render_action_item"),)
     if _is_editor_path(relative_path) and canonical.endswith("add_edit_block"):
@@ -1774,6 +1810,29 @@ def _allowed_literal_rules_for_path(
                 "AgentThread.sandbox_status",
             )
         )
+    if _is_llm_providers_page_path(relative_path):
+        rules.append(
+            (
+                ADD_LLM_PROVIDER_VALIDATION_ERROR_SOURCES,
+                "llm_provider_validation_error",
+                "AddLlmProvider.validation_error",
+            )
+        )
+    if _is_language_model_provider_path(relative_path):
+        rules.append(
+            (
+                LANGUAGE_MODEL_PROVIDER_INLINE_TITLE_SOURCES,
+                "inline_title",
+                "LanguageModelProvider.inline_title",
+            )
+        )
+        rules.append(
+            (
+                LANGUAGE_MODEL_PROVIDER_INLINE_DESCRIPTION_SOURCES,
+                "inline_description",
+                "LanguageModelProvider.inline_description",
+            )
+        )
     if _is_search_path(relative_path):
         rules.append(
             (
@@ -2586,6 +2645,8 @@ def _line_patterns_for_path(
         patterns.extend(AGENT_THREAD_VIEW_LINE_PATTERNS)
     if _is_agent_thread_path(relative_path):
         patterns.extend(AGENT_THREAD_LINE_PATTERNS)
+    if _is_agent_elicitation_path(relative_path):
+        patterns.extend(AGENT_ELICITATION_LINE_PATTERNS)
     if _is_agent_skill_load_error_path(relative_path):
         patterns.extend(AGENT_SKILL_LOAD_ERROR_LINE_PATTERNS)
     if _is_debugger_dap_log_path(relative_path):
@@ -2628,6 +2689,10 @@ def _is_settings_ui_path(relative_path: str) -> bool:
 
 def _is_sandbox_settings_page_path(relative_path: str) -> bool:
     return relative_path == "crates/settings_ui/src/pages/sandbox_settings.rs"
+
+
+def _is_llm_providers_page_path(relative_path: str) -> bool:
+    return relative_path == "crates/settings_ui/src/pages/llm_providers_page.rs"
 
 
 def _is_tool_permissions_setup_path(relative_path: str) -> bool:
@@ -2687,6 +2752,14 @@ def _is_agent_ui_root_path(relative_path: str) -> bool:
 
 def _is_agent_thread_view_path(relative_path: str) -> bool:
     return relative_path == "crates/agent_ui/src/conversation_view/thread_view.rs"
+
+
+def _is_agent_elicitation_path(relative_path: str) -> bool:
+    return relative_path == "crates/agent_ui/src/conversation_view/elicitation.rs"
+
+
+def _is_sandbox_status_tooltip_path(relative_path: str) -> bool:
+    return relative_path == "crates/agent_ui/src/ui/sandbox_status_tooltip.rs"
 
 
 def _is_thread_search_bar_path(relative_path: str) -> bool:
@@ -3033,7 +3106,7 @@ LINE_PATTERNS: tuple[LinePattern, ...] = (
         1,
     ),
     LinePattern(
-        re.compile(r'\bConfiguredApiCard::new\s*\(\s*("(?:\\.|[^"\\])*")'),
+        re.compile(r'\bConfiguredApiCard::new\s*\(\s*[^,\n]+,\s*("(?:\\.|[^"\\])*")'),
         "ConfiguredApiCard::new",
         "configured_api_card_label",
         1,
@@ -4087,6 +4160,40 @@ AGENT_THREAD_VIEW_LINE_PATTERNS: tuple[LinePattern, ...] = (
 )
 
 
+AGENT_ELICITATION_LINE_PATTERNS: tuple[LinePattern, ...] = (
+    LinePattern(
+        re.compile(
+            r'\bformat!\(\s*("'
+            r'(?:\{\} is required'
+            r'|\{\} needs more selections'
+            r'|\{\} has too many selections'
+            r'|\{title\} must be a number'
+            r'|\{title\} must be a finite number'
+            r'|\{title\} must be at least \{minimum\}'
+            r'|\{title\} must be at most \{maximum\}'
+            r'|\{title\} must be an integer'
+            r'|\{title\} is too short'
+            r'|\{title\} is too long'
+            r'|\{title\} must be one of the provided options'
+            r'|\{title\} has an invalid validation pattern'
+            r'|\{title\} has an invalid validation format'
+            r'|\{title\} does not match the requested constraints'
+            r'|\{title\} does not match the requested pattern'
+            r'|\{title\} must be \{format\})")'
+        ),
+        "Elicitation.validation",
+        "elicitation_validation_error",
+        1,
+    ),
+    LinePattern(
+        re.compile(r'^\s*Some\(\s*("(?:an email address|a URI|a date|a date and time)")\s*\)'),
+        "string_format_label",
+        "elicitation_format_label",
+        1,
+    ),
+)
+
+
 AGENT_SKILL_LOAD_ERROR_LINE_PATTERNS: tuple[LinePattern, ...] = (
     LinePattern(
         re.compile(r'\bmessage:\s*format!\(\s*("(?:\\.|[^"\\])*")'),
@@ -4124,19 +4231,23 @@ LANGUAGE_MODEL_PROVIDER_LINE_PATTERNS: tuple[LinePattern, ...] = (
         1,
     ),
     LinePattern(
-        re.compile(r'("(?:API key configured|Signed in)")\.to_string\(\)'),
+        re.compile(
+            r'("(?:API key configured|Signed in|Using automatic credentials \(AWS default chain\)|Using IAM credentials|Using Bedrock API Key|Not authenticated)")\.(?:to_string|into)\(\)'
+        ),
         "ConfiguredApiCard::new",
         "configured_api_card_label",
         1,
     ),
     LinePattern(
-        re.compile(r'\bformat!\(\s*("(?:API key configured for \{\}|Signed in as \{e\})")'),
+        re.compile(
+            r'\bformat!\(\s*("(?:API key configured for \{\}|Signed in as \{e\}|API key set in \{API_KEY_ENV_VAR_NAME\} environment variable\.?|Using AWS profile: \{profile_name\}|Using AWS SSO profile: \{profile_name\}|Using IAM credentials from \{\} and \{\} environment variables|Using Bedrock API Key from \{\} environment variable)")'
+        ),
         "ConfiguredApiCard::new",
         "configured_api_card_label",
         1,
     ),
     LinePattern(
-        re.compile(r'\bsection_header\(\s*("(?:Static Credentials|Using the an API key)")\.into\(\)'),
+        re.compile(r'\bsection_header\(\s*("(?:Static Credentials|Using the API key)")\.into\(\)'),
         "section_header",
         "section_header",
         1,

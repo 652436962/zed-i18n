@@ -1332,7 +1332,7 @@ class ExtractTests(unittest.TestCase):
         source = "\n".join(
             [
                 "fn render(cx: &mut App) {",
-                '    ConfiguredApiCard::new("Authorized").button_label("Sign Out");',
+                '    ConfiguredApiCard::new("copilot-authorized", "Authorized").button_label("Sign Out");',
                 '    ErrorMessagePrompt::new(err.to_string(), cx).with_link_button("See docs", docs_url);',
                 '    prompt.with_link_button("View in Browser".to_string(), url);',
                 '    MessageNotification::new("Failed to load the database file.", cx)',
@@ -1364,6 +1364,7 @@ class ExtractTests(unittest.TestCase):
         self.assertEqual(by_source["Sign Out"].call, "button_label")
         self.assertEqual(by_source["See docs"].call, "with_link_button")
         self.assertEqual(by_source["File an Issue"].kind, "notification_message")
+        self.assertNotIn("copilot-authorized", by_source)
 
     def test_extracts_dropdown_labels_and_tab_titles(self) -> None:
         source = "\n".join(
@@ -3259,6 +3260,65 @@ class ExtractTests(unittest.TestCase):
             "setting_description",
         )
 
+    def test_extracts_llm_provider_settings_helpers_after_v1_10_shape_change(self) -> None:
+        source = "\n".join(
+            [
+                "fn render_form(form: &LlmProviderForm, cx: &mut Context<SettingsWindow>) {",
+                "    render_form_field(",
+                '        "Provider Name",',
+                '        "A unique name used to identify this provider.",',
+                "        &form.provider_name,",
+                "        cx,",
+                "    );",
+                "    render_form_field(",
+                '        "Model Name",',
+                '        "The model\'s name in the provider\'s API.",',
+                "        &model.name,",
+                "        cx,",
+                "    );",
+                "    render_capability_checkbox(",
+                '        "supports-tools",',
+                "        index,",
+                '        "Supports tools",',
+                "        model.supports_tools,",
+                "        |model, state| model.supports_tools = state,",
+                "        cx,",
+                "    );",
+                '    return Err("Provider Name cannot be empty".into());',
+                '    return Err(format!("{name} must be a number").into());',
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/settings_ui/src/pages/llm_providers_page.rs",
+        )
+
+        by_source = {occurrence.source: occurrence for occurrence in occurrences}
+        self.assertEqual(
+            set(by_source),
+            {
+                "Provider Name",
+                "A unique name used to identify this provider.",
+                "Model Name",
+                "The model's name in the provider's API.",
+                "Supports tools",
+                "Provider Name cannot be empty",
+                "{name} must be a number",
+            },
+        )
+        self.assertEqual(by_source["Provider Name"].kind, "setting_title")
+        self.assertEqual(
+            by_source["The model's name in the provider's API."].kind,
+            "setting_description",
+        )
+        self.assertEqual(by_source["Supports tools"].kind, "setting_checkbox_label")
+        self.assertEqual(
+            by_source["Provider Name cannot be empty"].kind,
+            "llm_provider_validation_error",
+        )
+
     def test_extracts_reviewed_ui_helper_arguments(self) -> None:
         source = "\n".join(
             [
@@ -4001,14 +4061,17 @@ class ExtractTests(unittest.TestCase):
                 '        "API key configured".to_string()',
                 "    };",
                 '    let other_label = format!("API key configured for {}", api_url);',
-                "    ConfiguredApiCard::new(configured_card_label);",
+                '    ConfiguredApiCard::new("openai-reset-key", configured_card_label);',
+                '    ConfiguredApiCard::new("copilot-authorized", "Authorized");',
                 "    let label = state",
                 "        .email()",
                 '        .map(|e| format!("Signed in as {e}"))',
                 '        .unwrap_or_else(|| "Signed in".to_string());',
-                "    ConfiguredApiCard::new(SharedString::from(label));",
+                '    ConfiguredApiCard::new("openai-subscribed-sign-out", SharedString::from(label));',
+                '    let auth = "Using IAM credentials".into();',
+                '    let auth = format!("Using Bedrock API Key from {} environment variable", key);',
                 '    section_header("Static Credentials".into());',
-                '    section_header("Using the an API key".into());',
+                '    section_header("Using the API key".into());',
                 "}",
             ]
         )
@@ -4025,16 +4088,173 @@ class ExtractTests(unittest.TestCase):
                 "API key set in {API_KEY_ENV_VAR_NAME} environment variable",
                 "API key configured",
                 "API key configured for {}",
+                "Authorized",
                 "Signed in as {e}",
                 "Signed in",
+                "Using IAM credentials",
+                "Using Bedrock API Key from {} environment variable",
                 "Static Credentials",
-                "Using the an API key",
+                "Using the API key",
             },
         )
         self.assertEqual(by_source["API key configured"].call, "ConfiguredApiCard::new")
         self.assertEqual(by_source["API key configured"].kind, "configured_api_card_label")
+        self.assertEqual(by_source["Authorized"].kind, "configured_api_card_label")
         self.assertEqual(by_source["Signed in"].call, "ConfiguredApiCard::new")
         self.assertEqual(by_source["Static Credentials"].call, "section_header")
+        self.assertNotIn("openai-reset-key", by_source)
+
+    def test_extracts_language_model_provider_inline_descriptions(self) -> None:
+        source = "\n".join(
+            [
+                'const SUBSCRIPTION_DESCRIPTION: &str = "Sign in with your ChatGPT Plus or Pro subscription to use OpenAI models in Zed\'s agent.";',
+                "fn inline_description(&self, _cx: &App) -> Option<InlineDescription> {",
+                "    Some(InlineDescription::Text(",
+                '        "To use OpenCode models in Zed, you need an API key.".into(),',
+                "    ))",
+                "}",
+                "fn other_inline_description(&self, _cx: &App) -> Option<language_model::InlineDescription> {",
+                "    Some(language_model::InlineDescription::Text(",
+                '        "Requires an active GitHub Copilot subscription.".into(),',
+                "    ))",
+                "}",
+                "fn inline_title(&self, cx: &App) -> Option<SharedString> {",
+                '    Some("Configure ChatGPT".into())',
+                "}",
+                "fn zed_ai_description() -> &'static str {",
+                '    "You have access to Zed\'s hosted models through your Pro subscription."',
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/language_models/src/provider/opencode.rs",
+        )
+
+        by_source = {occurrence.source: occurrence for occurrence in occurrences}
+        self.assertEqual(
+            set(by_source),
+            {
+                "Sign in with your ChatGPT Plus or Pro subscription to use OpenAI models in Zed's agent.",
+                "To use OpenCode models in Zed, you need an API key.",
+                "Requires an active GitHub Copilot subscription.",
+                "Configure ChatGPT",
+                "You have access to Zed's hosted models through your Pro subscription.",
+            },
+        )
+        self.assertEqual(
+            by_source["To use OpenCode models in Zed, you need an API key."].kind,
+            "inline_description",
+        )
+        self.assertEqual(by_source["Configure ChatGPT"].kind, "inline_title")
+
+    def test_extracts_sandbox_status_tooltip_sections_and_rows(self) -> None:
+        source = "\n".join(
+            [
+                "fn render_tooltip(policy: &SandboxPolicyDisplay) {",
+                '    let mut section = SandboxSection::new("Defined in your settings:");',
+                '    section = section.group(SandboxGroup::new("Write Access").rows(sandbox_fs_rows(&policy.fs)));',
+                '    section = section.group(SandboxGroup::new("Network Access").rows(sandbox_network_rows(&policy.network)));',
+                '    SandboxSection::new("Allowed for this thread:");',
+                '    SandboxRow::message("All paths except protected Git metadata");',
+                '    SandboxRow::message("All domains (unrestricted)");',
+                '    SandboxRow::message("None");',
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/agent_ui/src/conversation_view/thread_view.rs",
+        )
+
+        by_source = {occurrence.source: occurrence for occurrence in occurrences}
+        self.assertEqual(
+            set(by_source),
+            {
+                "Defined in your settings:",
+                "Write Access",
+                "Network Access",
+                "Allowed for this thread:",
+                "All paths except protected Git metadata",
+                "All domains (unrestricted)",
+                "None",
+            },
+        )
+        self.assertEqual(
+            by_source["Defined in your settings:"].kind,
+            "sandbox_status_section",
+        )
+        self.assertEqual(by_source["Write Access"].kind, "sandbox_status_group")
+        self.assertEqual(
+            by_source["All paths except protected Git metadata"].kind,
+            "sandbox_status_message",
+        )
+
+    def test_extracts_agent_elicitation_validation_messages(self) -> None:
+        source = "\n".join(
+            [
+                "fn collect(title: SharedString) {",
+                '    Err(format!("{} is required", title).into());',
+                '    Err(format!("{} needs more selections", title).into());',
+                '    Err(format!("{} has too many selections", title).into());',
+                '    Err(format!("{title} must be a number").into());',
+                '    Err(format!("{title} must be a finite number").into());',
+                '    Err(format!("{title} must be at least {minimum}").into());',
+                '    Err(format!("{title} must be at most {maximum}").into());',
+                '    Err(format!("{title} must be an integer").into());',
+                '    Err(format!("{title} is too short").into());',
+                '    Err(format!("{title} is too long").into());',
+                '    Err(format!("{title} must be one of the provided options").into());',
+                '    Err(format!("{title} has an invalid validation pattern").into());',
+                '    Err(format!("{title} has an invalid validation format").into());',
+                '    Err(format!("{title} does not match the requested constraints").into());',
+                '    Err(format!("{title} does not match the requested pattern").into());',
+                '    Err(format!("{title} must be {format}").into());',
+                "}",
+                "fn string_format_label(format: acp::StringFormat) -> Option<&'static str> {",
+                '    Some("an email address");',
+                '    Some("a URI");',
+                '    Some("a date");',
+                '    Some("a date and time");',
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/agent_ui/src/conversation_view/elicitation.rs",
+        )
+
+        by_source = {occurrence.source: occurrence for occurrence in occurrences}
+        self.assertEqual(
+            set(by_source),
+            {
+                "{} is required",
+                "{} needs more selections",
+                "{} has too many selections",
+                "{title} must be a number",
+                "{title} must be a finite number",
+                "{title} must be at least {minimum}",
+                "{title} must be at most {maximum}",
+                "{title} must be an integer",
+                "{title} is too short",
+                "{title} is too long",
+                "{title} must be one of the provided options",
+                "{title} has an invalid validation pattern",
+                "{title} has an invalid validation format",
+                "{title} does not match the requested constraints",
+                "{title} does not match the requested pattern",
+                "{title} must be {format}",
+                "an email address",
+                "a URI",
+                "a date",
+                "a date and time",
+            },
+        )
+        self.assertEqual(by_source["{} is required"].kind, "elicitation_validation_error")
+        self.assertEqual(by_source["a URI"].kind, "elicitation_format_label")
 
     def test_extracts_debugger_breakpoint_control_strip_tooltip_labels(self) -> None:
         source = "\n".join(
