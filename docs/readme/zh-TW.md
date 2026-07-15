@@ -99,15 +99,19 @@ uv sync
 
 ```powershell
 uv run zed-i18n fetch-zed
-uv run zed-i18n extract --zed-root .cache/zed/v1.10.3-clean-extract
-uv run zed-i18n audit-candidates --zed-root .cache/zed/v1.10.3-clean-extract
-uv run zed-i18n prepare-translation --language ko-KR --zed-root .cache/zed/v1.10.3-clean-extract
+uv run zed-i18n extract --zed-root .cache/zed/<version>-clean-extract
+# 僅在更新版本時
+uv run zed-i18n generate-version-diff
+uv run zed-i18n audit-candidates --zed-root .cache/zed/<version>-clean-extract
+uv run zed-i18n prepare-translation --language ko-KR --zed-root .cache/zed/<version>-clean-extract
 uv run zed-i18n merge-translation --language ko-KR
 uv run zed-i18n validate --language ko-KR
 uv run zed-i18n apply --language ko-KR
 ```
 
 `extract` 會掃描 Zed 的 Rust 原始碼以尋找 UI 字串候選項，並將結果寫入 `catalog/en-US.json` 與 `manifest/ui-strings.json`。翻譯結果會儲存於 `translations/<language>.json`。
+
+更新版本時，`generate-version-diff` 會將與前一版本相比的鍵值變更寫入 `reports/version-diff/` 下的 `key-changes.json`，`prepare-translation` 會自動讀取該報告，將相似鍵值的過往翻譯作為參考納入批次。即使沒有該報告，翻譯批次仍會正常產生。
 
 新發現的字串會以 `needs_review` 狀態加入 `manifest/ui-strings.json`。只有確實顯示於 UI 中的字串，才應將狀態改為 `accepted` 並進行翻譯。
 

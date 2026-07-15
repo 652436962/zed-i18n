@@ -99,15 +99,19 @@ La version cible de Zed est définie dans `config/project.toml`. La commande `fe
 
 ```powershell
 uv run zed-i18n fetch-zed
-uv run zed-i18n extract --zed-root .cache/zed/v1.10.3-clean-extract
-uv run zed-i18n audit-candidates --zed-root .cache/zed/v1.10.3-clean-extract
-uv run zed-i18n prepare-translation --language ko-KR --zed-root .cache/zed/v1.10.3-clean-extract
+uv run zed-i18n extract --zed-root .cache/zed/<version>-clean-extract
+# Uniquement lors d'une mise à jour de version
+uv run zed-i18n generate-version-diff
+uv run zed-i18n audit-candidates --zed-root .cache/zed/<version>-clean-extract
+uv run zed-i18n prepare-translation --language ko-KR --zed-root .cache/zed/<version>-clean-extract
 uv run zed-i18n merge-translation --language ko-KR
 uv run zed-i18n validate --language ko-KR
 uv run zed-i18n apply --language ko-KR
 ```
 
 La commande `extract` analyse les sources Rust de Zed à la recherche de chaînes d'interface candidates et les écrit dans `catalog/en-US.json` et `manifest/ui-strings.json`. Les traductions sont stockées dans `translations/<language>.json`.
+
+Lors d'une mise à jour de version, `generate-version-diff` génère les changements de clés par rapport à la version précédente dans `key-changes.json` sous `reports/version-diff/`, et `prepare-translation` le lit automatiquement pour inclure dans les lots les anciennes traductions des clés similaires comme références. Les lots sont tout de même générés normalement sans ce rapport.
 
 Les chaînes nouvellement découvertes apparaissent dans `manifest/ui-strings.json` avec le statut `needs_review`. Seules les chaînes effectivement affichées dans l'interface doivent être passées à `accepted` puis traduites.
 

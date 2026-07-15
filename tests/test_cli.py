@@ -6,12 +6,16 @@ from unittest.mock import call, patch
 
 from tools.zed_i18n.cli import (
     build_parser,
+    main,
     preserve_manifest_statuses,
     resolve_zed_root,
     run_fetch_zed,
+    run_prepare_translation,
     run_validate,
 )
 from tools.zed_i18n.config import ProjectConfig
+from tools.zed_i18n.translation_pipeline import PrepareTranslationReport
+from tools.zed_i18n.version_diff import GeneratedVersionDiff
 
 
 class CliTests(unittest.TestCase):
@@ -68,6 +72,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(prepare_args.batch_size, 25)
         self.assertEqual(prepare_args.context_lines, 8)
         self.assertFalse(prepare_args.missing_only)
+        self.assertFalse(hasattr(prepare_args, "current_version"))
         self.assertTrue(
             parser.parse_args(
                 ["prepare-translation", "--language", "ko-KR", "--missing-only"]
@@ -132,6 +137,106 @@ class CliTests(unittest.TestCase):
         self.assertEqual(packaging_args.cask_out, "packaging/homebrew/Casks/zed-i18n.rb")
         self.assertEqual(packaging_args.bucket_out, "packaging/scoop/bucket")
         self.assertTrue(packaging_args.require_all_translations)
+
+    def test_parser_accepts_generate_version_diff_default_and_explicit_base_ref(self) -> None:
+        parser = build_parser()
+
+        default_args = parser.parse_args(["generate-version-diff"])
+        explicit_args = parser.parse_args(
+            ["generate-version-diff", "--base-ref", "release/v1"]
+        )
+
+        self.assertEqual(default_args.command, "generate-version-diff")
+        self.assertEqual(default_args.base_ref, "HEAD")
+        self.assertEqual(explicit_args.base_ref, "release/v1")
+
+    def test_main_runs_generate_version_diff_and_prints_summary(self) -> None:
+        output_path = (
+            self.tmp
+            / "reports"
+            / "version-diff"
+            / "v1-to-v2"
+            / "key-changes.json"
+        )
+        generated = GeneratedVersionDiff(
+            output_path=output_path,
+            report={
+                "summary": {"added": 2, "deleted": 1, "candidate_pairs": 3}
+            },
+        )
+
+        with (
+            patch(
+                "tools.zed_i18n.cli.generate_version_diff",
+                return_value=generated,
+            ) as generate,
+            patch("builtins.print") as print_output,
+        ):
+            exit_code = main(
+                [
+                    "--root",
+                    str(self.tmp),
+                    "generate-version-diff",
+                    "--base-ref",
+                    "release/v1",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        generate.assert_called_once_with(self.tmp.resolve(), base_ref="release/v1")
+        print_output.assert_called_once()
+        message = print_output.call_args.args[0]
+        for expected in (
+            "2 added",
+            "1 deleted",
+            "3 candidates",
+            "reports/version-diff/v1-to-v2/key-changes.json",
+        ):
+            self.assertIn(expected, message)
+
+    def test_prepare_translation_passes_the_configured_current_version(self) -> None:
+        config = ProjectConfig(
+            zed_version="v2.0.0",
+            zed_repository="https://github.com/zed-industries/zed",
+            cache_dir=Path(".cache/zed"),
+        )
+        checkout = self.tmp / ".cache" / "zed" / "v2.0.0-clean-extract"
+        prepared = PrepareTranslationReport(
+            language="ko-KR",
+            source_count=1,
+            batch_count=1,
+            output_dir="custom-output",
+        )
+
+        with (
+            patch("tools.zed_i18n.cli.load_project_config", return_value=config) as load,
+            patch("tools.zed_i18n.cli.resolve_zed_root", return_value=checkout),
+            patch(
+                "tools.zed_i18n.cli.prepare_translation_batches",
+                return_value=prepared,
+            ) as prepare,
+            patch("tools.zed_i18n.cli._write_json"),
+            patch("builtins.print"),
+        ):
+            exit_code = run_prepare_translation(
+                self.tmp,
+                "ko-KR",
+                None,
+                40,
+                12,
+                True,
+                "custom-output",
+                None,
+                None,
+                None,
+                3,
+            )
+
+        self.assertEqual(exit_code, 0)
+        load.assert_called_once_with(self.tmp)
+        options = prepare.call_args.kwargs["options"]
+        self.assertEqual(options.current_version, "v2.0.0")
+        self.assertEqual(prepare.call_args.kwargs["zed_root"], checkout)
 
     def test_preserves_existing_manifest_statuses_when_extracting_again(self) -> None:
         manifest = {

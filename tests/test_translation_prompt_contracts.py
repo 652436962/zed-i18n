@@ -6,6 +6,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TRANSLATION_PROMPTS = ROOT / "prompts" / "translation"
 GLOSSARY_DIR = TRANSLATION_PROMPTS / "glossary"
+VERSION_DIFF_REPORT = (
+    "reports/version-diff/<from-version>-to-<to-version>/key-changes.json"
+)
 
 
 class TranslationPromptContractTests(unittest.TestCase):
@@ -115,6 +118,65 @@ class TranslationPromptContractTests(unittest.TestCase):
         )
         for token in required_tokens:
             self.assertIn(token, audit_prompt)
+
+    def test_version_bump_instructions_use_executable_key_change_workflow(self) -> None:
+        instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        required_tokens = (
+            "generate-version-diff",
+            VERSION_DIFF_REPORT,
+            "The main orchestrator only runs the generator command",
+            "`prepare-translation` automatically",
+        )
+        forbidden_tokens = (
+            "deleted-key-memory.json",
+            "git show <base_commit>",
+        )
+
+        for token in required_tokens:
+            self.assertIn(token, instructions)
+        for token in forbidden_tokens:
+            self.assertNotIn(token, instructions)
+
+    def test_new_key_prompt_relies_on_automatic_batch_references(self) -> None:
+        prompt = (
+            ROOT / "prompts" / "commands" / "translation-start-new-keys.md"
+        ).read_text(encoding="utf-8")
+        required_tokens = (
+            "previous_version_references",
+            "optional historical translation hints",
+            "current source context",
+            "current placeholders and protected tokens win",
+        )
+        for token in required_tokens:
+            self.assertIn(token, prompt)
+        self.assertNotIn("deleted-key-memory.json", prompt)
+        self.assertIsNone(re.search(r"(?i)\bgit\b", prompt))
+
+    def test_new_key_prompt_scopes_model_artifact_writes_to_translations(self) -> None:
+        prompt = (
+            ROOT / "prompts" / "commands" / "translation-start-new-keys.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "The only file under `translations/` that this workflow may write is "
+            "`translations/<LANG>.<MODEL_SLUG>.json`",
+            prompt,
+        )
+
+    def test_korean_readme_documents_version_diff_workflow(self) -> None:
+        readme = (ROOT / "docs" / "readme" / "ko-KR.md").read_text(encoding="utf-8")
+        usage = _section(readme, "사용법")
+        commands = (
+            "uv run zed-i18n extract --zed-root .cache/zed/<version>-clean-extract",
+            "uv run zed-i18n generate-version-diff",
+            "uv run zed-i18n audit-candidates --zed-root .cache/zed/<version>-clean-extract",
+        )
+
+        command_positions = [usage.find(command) for command in commands]
+        self.assertTrue(all(position >= 0 for position in command_positions))
+        self.assertEqual(command_positions, sorted(command_positions))
+        self.assertIn("key-changes.json", usage)
+        self.assertIn("prepare-translation", usage)
 
 
 def _section(markdown: str, heading: str) -> str:

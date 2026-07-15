@@ -99,15 +99,19 @@ uv sync
 
 ```powershell
 uv run zed-i18n fetch-zed
-uv run zed-i18n extract --zed-root .cache/zed/v1.10.3-clean-extract
-uv run zed-i18n audit-candidates --zed-root .cache/zed/v1.10.3-clean-extract
-uv run zed-i18n prepare-translation --language ko-KR --zed-root .cache/zed/v1.10.3-clean-extract
+uv run zed-i18n extract --zed-root .cache/zed/<version>-clean-extract
+# Только при обновлении версии
+uv run zed-i18n generate-version-diff
+uv run zed-i18n audit-candidates --zed-root .cache/zed/<version>-clean-extract
+uv run zed-i18n prepare-translation --language ko-KR --zed-root .cache/zed/<version>-clean-extract
 uv run zed-i18n merge-translation --language ko-KR
 uv run zed-i18n validate --language ko-KR
 uv run zed-i18n apply --language ko-KR
 ```
 
 `extract` сканирует Rust-исходники Zed в поисках кандидатов на строки пользовательского интерфейса и записывает результат в `catalog/en-US.json` и `manifest/ui-strings.json`. Результаты переводов хранятся в `translations/<language>.json`.
+
+При обновлении версии `generate-version-diff` записывает изменения ключей относительно предыдущей версии в `key-changes.json` в каталоге `reports/version-diff/`, а `prepare-translation` автоматически читает его и добавляет в пакеты прежние переводы похожих ключей в качестве справочного материала. Пакеты перевода формируются в штатном режиме и без этого отчёта.
 
 Вновь обнаруженные строки появляются в `manifest/ui-strings.json` со статусом `needs_review`. Меняйте на `accepted` и переводите только те строки, которые действительно отображаются в пользовательском интерфейсе.
 

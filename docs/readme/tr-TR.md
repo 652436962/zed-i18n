@@ -99,15 +99,19 @@ Hedef Zed sürümü `config/project.toml` dosyasında belirlenir. `fetch-zed`, h
 
 ```powershell
 uv run zed-i18n fetch-zed
-uv run zed-i18n extract --zed-root .cache/zed/v1.10.3-clean-extract
-uv run zed-i18n audit-candidates --zed-root .cache/zed/v1.10.3-clean-extract
-uv run zed-i18n prepare-translation --language ko-KR --zed-root .cache/zed/v1.10.3-clean-extract
+uv run zed-i18n extract --zed-root .cache/zed/<version>-clean-extract
+# Yalnızca sürüm güncellenirken
+uv run zed-i18n generate-version-diff
+uv run zed-i18n audit-candidates --zed-root .cache/zed/<version>-clean-extract
+uv run zed-i18n prepare-translation --language ko-KR --zed-root .cache/zed/<version>-clean-extract
 uv run zed-i18n merge-translation --language ko-KR
 uv run zed-i18n validate --language ko-KR
 uv run zed-i18n apply --language ko-KR
 ```
 
 `extract`, Zed'in Rust kaynak kodunu arayüz dizesi adayları için tarar; sonuçları `catalog/en-US.json` ve `manifest/ui-strings.json` dosyalarına yazar. Çeviri sonuçları `translations/<language>.json` dosyasında saklanır.
+
+Sürüm güncellenirken `generate-version-diff`, önceki sürüme göre anahtar değişikliklerini `reports/version-diff/` altındaki `key-changes.json` dosyasına yazar; `prepare-translation` bu dosyayı otomatik olarak okuyup benzer anahtarların geçmiş çevirilerini referans olarak toplu işlemlere dahil eder. Bu rapor olmasa da toplu işlemler yine de normal şekilde üretilir.
 
 Yeni keşfedilen dizeler `manifest/ui-strings.json` dosyasına `needs_review` durumuyla eklenir. Yalnızca arayüzde gerçekten görüntülenen dizeler `accepted` olarak işaretlenmeli ve ardından çevrilmelidir.
 

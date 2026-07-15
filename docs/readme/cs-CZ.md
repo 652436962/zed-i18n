@@ -99,15 +99,19 @@ Cílová verze Zed je nastavena v `config/project.toml`. Příkaz `fetch-zed` p�
 
 ```powershell
 uv run zed-i18n fetch-zed
-uv run zed-i18n extract --zed-root .cache/zed/v1.10.3-clean-extract
-uv run zed-i18n audit-candidates --zed-root .cache/zed/v1.10.3-clean-extract
-uv run zed-i18n prepare-translation --language ko-KR --zed-root .cache/zed/v1.10.3-clean-extract
+uv run zed-i18n extract --zed-root .cache/zed/<version>-clean-extract
+# Pouze při aktualizaci verze
+uv run zed-i18n generate-version-diff
+uv run zed-i18n audit-candidates --zed-root .cache/zed/<version>-clean-extract
+uv run zed-i18n prepare-translation --language ko-KR --zed-root .cache/zed/<version>-clean-extract
 uv run zed-i18n merge-translation --language ko-KR
 uv run zed-i18n validate --language ko-KR
 uv run zed-i18n apply --language ko-KR
 ```
 
 Příkaz `extract` prohledá zdrojové kódy Zed (Rust) a vyhledá kandidáty na UI řetězce, které zapíše do `catalog/en-US.json` a `manifest/ui-strings.json`. Výsledky překladů se ukládají do `translations/<language>.json`.
+
+Při aktualizaci verze vytvoří `generate-version-diff` přehled změn klíčů oproti předchozí verzi v souboru `key-changes.json` ve složce `reports/version-diff/` a `prepare-translation` jej automaticky načte a zahrne dřívější překlady podobných klíčů do dávek jako referenci. Dávky se vytvoří normálně i bez tohoto přehledu.
 
 Nově nalezené řetězce jsou zapsány do `manifest/ui-strings.json` se stavem `needs_review`. Pouze řetězce, které se skutečně zobrazují v UI, by měly být přepnuty na `accepted` a poté přeloženy.
 

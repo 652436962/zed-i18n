@@ -1,7 +1,9 @@
 import json
 import shutil
 import unittest
+from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import patch
 
 from tools.zed_i18n.translation_pipeline import (
     PrepareTranslationOptions,
@@ -114,6 +116,7 @@ class TranslationPipelineTests(unittest.TestCase):
         self.assertEqual(batch["entries"][0]["kind"], "callout_title")
         self.assertIn('        "Rate Limit Reached",', batch["entries"][0]["code_context"])
         self.assertIn("results/batch-001.json", batch["output"]["result_file"])
+        self.assertEqual(batch["output"]["format"], {"source": "translation"})
         prompt = prompt_path.read_text(encoding="utf-8")
         self.assertIn("Base ko-KR prompt", prompt)
         self.assertIn("Rate Limit Reached", prompt)
@@ -719,6 +722,450 @@ class TranslationPipelineTests(unittest.TestCase):
 
         self.assertTrue((self.root / "custom-agent-batches" / "plan.json").exists())
 
+    def test_prepare_translation_batches_injects_compact_version_references_for_every_model_run(self) -> None:
+        self._write_version_reference_translation_fixture()
+        report_path = self._write_version_reference_report()
+        original_report = report_path.read_bytes()
+        first_model_references: list[dict[str, object]] | None = None
+
+        for model in ("model-a", "model-b"):
+            output_dir = (
+                self.root
+                / "reports"
+                / "translation-runs"
+                / "ko-KR"
+                / model
+            )
+            prepare_translation_batches(
+                root=self.root,
+                language="ko-KR",
+                zed_root=self.zed_root,
+                options=PrepareTranslationOptions(
+                    current_version="v2",
+                    output_dir=output_dir,
+                ),
+            )
+
+            batch = self._read_json(output_dir / "batches" / "batch-001.json")
+            entry = next(
+                item for item in batch["entries"] if item["source"] == "New source"
+            )
+            references = entry["previous_version_references"]
+            if model == "model-b":
+                self.assertEqual(references, first_model_references)
+                self.assertEqual(report_path.read_bytes(), original_report)
+                continue
+
+            first_model_references = references
+            reference = references[0]
+            self.assertEqual(reference["historical_translation"], "과거 번역")
+            self.assertNotIn("translations", reference)
+            self.assertNotIn("old_occurrences", reference)
+            self.assertNotIn(
+                "previous_version_references",
+                next(
+                    item
+                    for item in batch["entries"]
+                    if item["source"] == "No history"
+                ),
+            )
+
+            prompt = (output_dir / "prompts" / "batch-001.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("previous_version_references", prompt)
+            self.assertIn("optional historical translation hints", prompt)
+            self.assertIn("current placeholders and protected tokens win", prompt)
+            self.assertNotIn("以前の翻訳", prompt)
+
+            plan = self._read_json(output_dir / "plan.json")
+            self.assertEqual(
+                plan["version_diff"],
+                {
+                    "status": "loaded",
+                    "path": "reports/version-diff/v1-to-v2/key-changes.json",
+                    "reference_source_count": 1,
+                    "warnings": [],
+                },
+            )
+            serialized_plan = json.dumps(plan, ensure_ascii=False)
+            self.assertNotIn("Old source", serialized_plan)
+            self.assertNotIn("과거 번역", serialized_plan)
+
+    def test_prepare_translation_batches_continues_when_version_diff_report_is_malformed(self) -> None:
+        self._write_version_reference_translation_fixture()
+        report_path = (
+            self.root
+            / "reports"
+            / "version-diff"
+            / "v1-to-v2"
+            / "key-changes.json"
+        )
+        report_path.parent.mkdir(parents=True)
+        report_path.write_text("{", encoding="utf-8")
+        output_dir = self.root / "custom" / "malformed-version-diff"
+
+        prepare_translation_batches(
+            root=self.root,
+            language="ko-KR",
+            zed_root=self.zed_root,
+            options=PrepareTranslationOptions(
+                current_version="v2",
+                output_dir=output_dir,
+            ),
+        )
+
+        batch = self._read_json(output_dir / "batches" / "batch-001.json")
+        self.assertTrue(
+            all(
+                "previous_version_references" not in entry
+                for entry in batch["entries"]
+            )
+        )
+        metadata = self._read_json(output_dir / "plan.json")["version_diff"]
+        self.assertEqual(metadata["status"], "invalid")
+        self.assertEqual(metadata["reference_source_count"], 0)
+        self.assertTrue(
+            any("malformed" in warning.lower() for warning in metadata["warnings"]),
+            metadata["warnings"],
+        )
+
+    def test_prepare_translation_batches_disables_version_references_without_current_version(self) -> None:
+        self._write_version_reference_translation_fixture()
+        self._write_version_reference_report()
+        output_dir = self.root / "custom" / "disabled"
+
+        prepare_translation_batches(
+            root=self.root,
+            language="ko-KR",
+            zed_root=self.zed_root,
+            options=PrepareTranslationOptions(output_dir=output_dir),
+        )
+
+        plan = self._read_json(output_dir / "plan.json")
+        self.assertEqual(
+            plan["version_diff"],
+            {
+                "status": "disabled",
+                "path": None,
+                "reference_source_count": 0,
+                "warnings": [],
+            },
+        )
+        batch = self._read_json(output_dir / "batches" / "batch-001.json")
+        self.assertTrue(
+            all(
+                "previous_version_references" not in entry
+                for entry in batch["entries"]
+            )
+        )
+
+    def test_prepare_translation_batches_records_projection_failures_as_warnings(self) -> None:
+        self._write_version_reference_translation_fixture()
+        self._write_version_reference_report()
+        output_dir = self.root / "custom" / "projection-failure"
+
+        with patch(
+            "tools.zed_i18n.version_references._best_old_occurrence",
+            side_effect=RuntimeError("projection exploded"),
+        ):
+            prepare_translation_batches(
+                root=self.root,
+                language="ko-KR",
+                zed_root=self.zed_root,
+                options=PrepareTranslationOptions(
+                    current_version="v2",
+                    output_dir=output_dir,
+                ),
+            )
+
+        batch = self._read_json(output_dir / "batches" / "batch-001.json")
+        self.assertTrue(
+            all(
+                "previous_version_references" not in entry
+                for entry in batch["entries"]
+            )
+        )
+        metadata = self._read_json(output_dir / "plan.json")["version_diff"]
+        self.assertEqual(metadata["status"], "loaded")
+        self.assertEqual(metadata["reference_source_count"], 0)
+        self.assertTrue(
+            any("projection" in warning.lower() for warning in metadata["warnings"]),
+            metadata["warnings"],
+        )
+
+    def test_prepare_translation_batches_rejects_output_paths_overlapping_reserved_version_diff_paths(self) -> None:
+        self._write_version_reference_translation_fixture()
+
+        cases = (
+            ("loaded-equal", "v2"),
+            ("loaded-ancestor", "v2"),
+            ("loaded-descendant", "v2"),
+            ("disabled-equal", None),
+        )
+        for relationship, current_version in cases:
+            with self.subTest(relationship=relationship):
+                shutil.rmtree(
+                    self.root / "reports" / "version-diff",
+                    ignore_errors=True,
+                )
+                report_path = self._write_version_reference_report()
+                original_report = report_path.read_bytes()
+                if relationship in ("loaded-equal", "disabled-equal"):
+                    output_dir = self.root / "reports" / "version-diff"
+                elif relationship == "loaded-ancestor":
+                    output_dir = self.root / "reports"
+                else:
+                    output_dir = report_path.parent
+                (output_dir / "plan.json").parent.mkdir(parents=True, exist_ok=True)
+                (output_dir / "plan.json").write_text("{}\n", encoding="utf-8")
+                seeded_plan = (output_dir / "plan.json").read_bytes()
+                reserved_before = sorted(
+                    path.as_posix()
+                    for path in (self.root / "reports" / "version-diff").rglob("*")
+                )
+
+                with self.assertRaisesRegex(ValueError, "version-diff report"):
+                    prepare_translation_batches(
+                        root=self.root,
+                        language="ko-KR",
+                        zed_root=self.zed_root,
+                        options=PrepareTranslationOptions(
+                            current_version=current_version,
+                            output_dir=output_dir,
+                        ),
+                    )
+
+                self.assertTrue(report_path.exists())
+                self.assertEqual(report_path.read_bytes(), original_report)
+                self.assertEqual(
+                    sorted(
+                        path.as_posix()
+                        for path in (
+                            self.root / "reports" / "version-diff"
+                        ).rglob("*")
+                    ),
+                    reserved_before,
+                )
+                self.assertEqual((output_dir / "plan.json").read_bytes(), seeded_plan)
+                for subdirectory in ("batches", "prompts", "results"):
+                    self.assertFalse((output_dir / subdirectory).exists())
+
+    def test_prepare_translation_batches_sanitizes_invalid_schema_warnings(self) -> None:
+        self._write_version_reference_translation_fixture()
+        report_path = self._write_version_reference_report()
+        report = self._read_json(report_path)
+        old_entry = report["deleted"].pop("Old source")
+        old_entry["translations"]["ko-KR"] = ""
+        report["deleted"]["Sensitive old source"] = old_entry
+        new_entry = report["added"].pop("New source")
+        new_entry["candidates"][0]["old_source"] = "Sensitive old source"
+        new_entry["candidates"][0]["score"] = 2.0
+        report["added"]["Sensitive new source"] = new_entry
+        self._write_json(report_path, report)
+        output_dir = self.root / "custom" / "sanitized-schema-warning"
+
+        prepare_translation_batches(
+            root=self.root,
+            language="ko-KR",
+            zed_root=self.zed_root,
+            options=PrepareTranslationOptions(
+                current_version="v2",
+                output_dir=output_dir,
+            ),
+        )
+
+        plan = self._read_json(output_dir / "plan.json")
+        metadata = plan["version_diff"]
+        self.assertEqual(metadata["status"], "invalid")
+        self.assertTrue(
+            any("invalid schema" in warning.lower() for warning in metadata["warnings"]),
+            metadata["warnings"],
+        )
+        serialized_plan = json.dumps(plan, ensure_ascii=False)
+        self.assertNotIn("Sensitive old source", serialized_plan)
+        self.assertNotIn("Sensitive new source", serialized_plan)
+
+    def test_prepare_translation_batches_rejects_outputs_resolving_to_version_diff_aliases(self) -> None:
+        self._write_version_reference_translation_fixture()
+        version_diff_dir = self.root / "reports" / "version-diff"
+        original_resolve = Path.resolve
+
+        for alias_kind in ("child", "root"):
+            with self.subTest(alias_kind=alias_kind):
+                shutil.rmtree(version_diff_dir, ignore_errors=True)
+                report_path = self._write_version_reference_report()
+                original_report = report_path.read_bytes()
+                version_directory = report_path.parent
+                output_dir = self.root / f"{alias_kind}-alias-target"
+                output_dir.mkdir()
+                (output_dir / "plan.json").write_text("{}\n", encoding="utf-8")
+
+                def resolve_path(
+                    path: Path,
+                    *args: object,
+                    **kwargs: object,
+                ) -> Path:
+                    if alias_kind == "child":
+                        if path == version_directory:
+                            return output_dir
+                        if path == report_path:
+                            return output_dir / "key-changes.json"
+                    elif path == version_diff_dir:
+                        return output_dir
+                    return original_resolve(path, *args, **kwargs)
+
+                reserved_before = sorted(
+                    path.as_posix() for path in version_diff_dir.rglob("*")
+                )
+                with patch.object(
+                    Path,
+                    "resolve",
+                    autospec=True,
+                    side_effect=resolve_path,
+                ):
+                    with self.assertRaisesRegex(ValueError, "version-diff"):
+                        prepare_translation_batches(
+                            root=self.root,
+                            language="ko-KR",
+                            zed_root=self.zed_root,
+                            options=PrepareTranslationOptions(output_dir=output_dir),
+                        )
+
+                self.assertTrue(report_path.exists())
+                self.assertEqual(report_path.read_bytes(), original_report)
+                self.assertEqual(
+                    sorted(path.as_posix() for path in version_diff_dir.rglob("*")),
+                    reserved_before,
+                )
+                for subdirectory in ("batches", "prompts", "results"):
+                    self.assertFalse((output_dir / subdirectory).exists())
+
+    def test_prepare_translation_batches_continues_when_version_diff_path_inspection_fails(self) -> None:
+        self._write_version_reference_translation_fixture()
+        report_path = self._write_version_reference_report()
+        original_report = report_path.read_bytes()
+        version_diff_dir = self.root / "reports" / "version-diff"
+        original_resolve = Path.resolve
+
+        def resolve_path(path: Path, *args: object, **kwargs: object) -> Path:
+            if path == version_diff_dir:
+                raise RuntimeError("symlink loop")
+            return original_resolve(path, *args, **kwargs)
+
+        cases = (
+            (
+                "enumeration-denied",
+                patch.object(
+                    Path,
+                    "iterdir",
+                    side_effect=PermissionError("enumeration denied"),
+                ),
+                PrepareTranslationOptions(
+                    current_version="v2",
+                    output_dir=self.root / "custom" / "enumeration-denied",
+                ),
+                "invalid",
+                "discovery",
+            ),
+            (
+                "root-resolve-loop",
+                patch.object(
+                    Path,
+                    "resolve",
+                    autospec=True,
+                    side_effect=resolve_path,
+                ),
+                PrepareTranslationOptions(
+                    output_dir=self.root / "custom" / "root-resolve-loop",
+                ),
+                "disabled",
+                None,
+            ),
+        )
+
+        for error_kind, path_patch, options, expected_status, warning_text in cases:
+            with self.subTest(error_kind=error_kind), path_patch:
+                prepare_translation_batches(
+                    root=self.root,
+                    language="ko-KR",
+                    zed_root=self.zed_root,
+                    options=options,
+                )
+
+            output_dir = Path(options.output_dir)
+            metadata = self._read_json(output_dir / "plan.json")["version_diff"]
+            self.assertEqual(metadata["status"], expected_status)
+            self.assertEqual(metadata["reference_source_count"], 0)
+            if warning_text is not None:
+                self.assertTrue(
+                    any(
+                        warning_text in warning.lower()
+                        for warning in metadata["warnings"]
+                    ),
+                    metadata["warnings"],
+                )
+            batch = self._read_json(output_dir / "batches" / "batch-001.json")
+            self.assertTrue(
+                all(
+                    "previous_version_references" not in entry
+                    for entry in batch["entries"]
+                )
+            )
+            self.assertTrue(report_path.exists())
+            self.assertEqual(report_path.read_bytes(), original_report)
+
+    def test_prepare_translation_batches_skips_broken_alias_and_protects_other_targets(self) -> None:
+        self._write_version_reference_translation_fixture()
+        protected_report = self._write_version_reference_report()
+        broken_report = self._write_version_reference_report(
+            directory="v0-to-v2",
+            from_version="v0",
+        )
+        original_reports = {
+            protected_report: protected_report.read_bytes(),
+            broken_report: broken_report.read_bytes(),
+        }
+        version_diff_dir = self.root / "reports" / "version-diff"
+        output_dir = self.root / "custom-target"
+        output_dir.mkdir()
+        (output_dir / "plan.json").write_text("{}\n", encoding="utf-8")
+        original_iterdir = Path.iterdir
+        original_resolve = Path.resolve
+
+        def iter_directory(path: Path) -> Iterator[Path]:
+            if path == version_diff_dir:
+                return iter([broken_report.parent, protected_report.parent])
+            return original_iterdir(path)
+
+        def resolve_path(path: Path, *args: object, **kwargs: object) -> Path:
+            if path == broken_report.parent:
+                raise RuntimeError("symlink loop")
+            if path == protected_report.parent:
+                return output_dir
+            if path == protected_report:
+                return output_dir / "key-changes.json"
+            return original_resolve(path, *args, **kwargs)
+
+        with patch.object(
+            Path,
+            "iterdir",
+            autospec=True,
+            side_effect=iter_directory,
+        ):
+            with patch.object(Path, "resolve", autospec=True, side_effect=resolve_path):
+                with self.assertRaisesRegex(ValueError, "version-diff"):
+                    prepare_translation_batches(
+                        root=self.root,
+                        language="ko-KR",
+                        zed_root=self.zed_root,
+                        options=PrepareTranslationOptions(output_dir=output_dir),
+                    )
+
+        for report_path, original_bytes in original_reports.items():
+            self.assertTrue(report_path.exists())
+            self.assertEqual(report_path.read_bytes(), original_bytes)
+
     def test_merge_translation_results_skips_invalid_agent_outputs(self) -> None:
         self._write_json(
             self.root / "manifest" / "ui-strings.json",
@@ -835,6 +1282,105 @@ class TranslationPipelineTests(unittest.TestCase):
                 language="ko-KR",
                 results_dir=results_dir,
             )
+
+    def _write_version_reference_translation_fixture(self) -> None:
+        occurrences = [
+            {
+                "file": "crates/app/src/lib.rs",
+                "line": 1,
+                "call": "Label::new",
+                "kind": "label",
+                "start_byte": 0,
+                "end_byte": 10,
+            }
+        ]
+        self._write_json(
+            self.root / "manifest" / "ui-strings.json",
+            {
+                "New source": {"status": "accepted", "occurrences": occurrences},
+                "No history": {"status": "accepted", "occurrences": []},
+            },
+        )
+        (self.root / "prompts" / "translation" / "ko-KR.md").write_text(
+            "Base ko-KR prompt",
+            encoding="utf-8",
+        )
+        source_path = self.zed_root / "crates" / "app" / "src" / "lib.rs"
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        source_path.write_text('Label::new("New source");', encoding="utf-8")
+
+    def _write_version_reference_report(
+        self,
+        *,
+        directory: str = "v1-to-v2",
+        from_version: str = "v1",
+    ) -> Path:
+        path = (
+            self.root
+            / "reports"
+            / "version-diff"
+            / directory
+            / "key-changes.json"
+        )
+        self._write_json(
+            path,
+            {
+                "schema_version": 1,
+                "from_version": from_version,
+                "to_version": "v2",
+                "base_commit": "a" * 40,
+                "summary": {"added": 1, "deleted": 1, "candidate_pairs": 1},
+                "deleted": {
+                    "Old source": {
+                        "status": "accepted",
+                        "occurrences": [
+                            {
+                                "file": "crates/app/src/lib.rs",
+                                "line": 8,
+                                "call": "Label::new",
+                                "kind": "label",
+                                "start_byte": 2,
+                                "end_byte": 12,
+                            }
+                        ],
+                        "translations": {
+                            "ja-JP": "以前の翻訳",
+                            "ko-KR": "과거 번역",
+                        },
+                    }
+                },
+                "added": {
+                    "New source": {
+                        "status": "accepted",
+                        "occurrences": [
+                            {
+                                "file": "crates/app/src/lib.rs",
+                                "line": 1,
+                                "call": "Label::new",
+                                "kind": "label",
+                                "start_byte": 0,
+                                "end_byte": 10,
+                            }
+                        ],
+                        "candidates": [
+                            {
+                                "old_source": "Old source",
+                                "score": 0.91,
+                                "match_kind": "similarity",
+                                "signals": {
+                                    "normalized_text_equal": False,
+                                    "placeholder_shape_equal": False,
+                                    "same_file": True,
+                                    "same_kind": True,
+                                    "same_call": True,
+                                },
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        return path
 
     def _write_json(self, path: Path, value: object) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

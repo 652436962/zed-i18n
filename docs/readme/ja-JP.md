@@ -99,15 +99,19 @@ uv sync
 
 ```powershell
 uv run zed-i18n fetch-zed
-uv run zed-i18n extract --zed-root .cache/zed/v1.10.3-clean-extract
-uv run zed-i18n audit-candidates --zed-root .cache/zed/v1.10.3-clean-extract
-uv run zed-i18n prepare-translation --language ko-KR --zed-root .cache/zed/v1.10.3-clean-extract
+uv run zed-i18n extract --zed-root .cache/zed/<version>-clean-extract
+# バージョン更新時のみ
+uv run zed-i18n generate-version-diff
+uv run zed-i18n audit-candidates --zed-root .cache/zed/<version>-clean-extract
+uv run zed-i18n prepare-translation --language ko-KR --zed-root .cache/zed/<version>-clean-extract
 uv run zed-i18n merge-translation --language ko-KR
 uv run zed-i18n validate --language ko-KR
 uv run zed-i18n apply --language ko-KR
 ```
 
 `extract` は Zed の Rust ソースをスキャンして UI 文字列の候補を抽出し、`catalog/en-US.json` と `manifest/ui-strings.json` に書き出します。翻訳結果は `translations/<language>.json` に保存されます。
+
+バージョンを更新するときは、`generate-version-diff` が以前のバージョンとのキー変更内容を `reports/version-diff/` 配下の `key-changes.json` に生成し、`prepare-translation` がこれを自動的に読み込んで、類似キーの過去の翻訳を参考資料としてバッチに含めます。このレポートがない場合でも、翻訳バッチは通常通り生成されます。
 
 新たに発見された文字列は `needs_review` ステータスで `manifest/ui-strings.json` に追加されます。実際に UI に表示される文字列のみ `accepted` に変更してから翻訳してください。
 

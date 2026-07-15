@@ -99,15 +99,19 @@ The target Zed version is set in `config/project.toml`. `fetch-zed` prepares bot
 
 ```powershell
 uv run zed-i18n fetch-zed
-uv run zed-i18n extract --zed-root .cache/zed/v1.10.3-clean-extract
-uv run zed-i18n audit-candidates --zed-root .cache/zed/v1.10.3-clean-extract
-uv run zed-i18n prepare-translation --language ko-KR --zed-root .cache/zed/v1.10.3-clean-extract
+uv run zed-i18n extract --zed-root .cache/zed/<version>-clean-extract
+# Only when updating the version
+uv run zed-i18n generate-version-diff
+uv run zed-i18n audit-candidates --zed-root .cache/zed/<version>-clean-extract
+uv run zed-i18n prepare-translation --language ko-KR --zed-root .cache/zed/<version>-clean-extract
 uv run zed-i18n merge-translation --language ko-KR
 uv run zed-i18n validate --language ko-KR
 uv run zed-i18n apply --language ko-KR
 ```
 
 `extract` scans the Zed Rust sources for UI string candidates and writes them to `catalog/en-US.json` and `manifest/ui-strings.json`. Translation results are stored in `translations/<language>.json`.
+
+When updating the version, `generate-version-diff` writes the key changes against the previous version to `key-changes.json` under `reports/version-diff/`, and `prepare-translation` automatically reads it to include past translations of similar keys in the batches as reference material. Translation batches are still generated normally without the report.
 
 Newly discovered strings are added to `manifest/ui-strings.json` with the `needs_review` status. Mark only strings that are actually shown in the UI as `accepted`, then translate them.
 

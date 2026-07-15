@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -15,6 +16,11 @@ from .context_groups import (
 )
 from .rust_strings import rust_format_placeholders_compatible
 from .translation_checks import protected_tokens_match
+from .version_references import (
+    VersionReferenceIndex,
+    VersionReferenceLoadResult,
+    load_version_references,
+)
 from .vscode_loc import (
     VscodeTranslationIndex,
     find_vscode_references,
@@ -41,6 +47,7 @@ class PrepareTranslationOptions:
     vscode_loc_root: Path | None = None
     vscode_source_root: Path | None = None
     vscode_reference_count: int = 3
+    current_version: str | None = None
 
     def __post_init__(self) -> None:
         if self.batch_size <= 0:
@@ -83,9 +90,15 @@ def prepare_translation_batches(
     options: PrepareTranslationOptions | None = None,
 ) -> PrepareTranslationReport:
     options = options or PrepareTranslationOptions()
+    version_references = (
+        load_version_references(root, options.current_version)
+        if options.current_version is not None
+        else VersionReferenceLoadResult.disabled()
+    )
     manifest = _read_json(root / "manifest" / "ui-strings.json")
     translations = _read_json_if_exists(root / "translations" / f"{language}.json")
     output_dir = options.output_dir or root / "reports" / "translation" / language
+    _reject_version_report_overlap(root, output_dir)
     prompt_path = options.prompt_path or root / "prompts" / "translation" / f"{language}.md"
     prompt_used = prompt_path if prompt_path.exists() else root / "prompts" / "translation" / "TEMPLATE.md"
     base_prompt = prompt_used.read_text(encoding="utf-8") if prompt_used.exists() else ""
@@ -126,12 +139,14 @@ def prepare_translation_batches(
     result_dir.mkdir(parents=True, exist_ok=True)
 
     plan_batches: list[dict[str, Any]] = []
+    reference_sources: set[str] = set()
     for batch_index, batch_sources in enumerate(batches, start=1):
         batch_file = batch_dir / f"batch-{batch_index:03d}.json"
         prompt_file = prompt_dir / f"batch-{batch_index:03d}.md"
         result_file = result_dir / f"batch-{batch_index:03d}.json"
-        entries = [
-            _translation_entry(
+        entries: list[dict[str, Any]] = []
+        for source in batch_sources:
+            entry = _translation_entry(
                 source,
                 manifest[source],
                 zed_root,
@@ -139,9 +154,12 @@ def prepare_translation_batches(
                 vscode_memory,
                 options.vscode_reference_count,
                 contexts_by_source.get(source),
+                version_references.index,
+                language,
             )
-            for source in batch_sources
-        ]
+            entries.append(entry)
+            if "previous_version_references" in entry:
+                reference_sources.add(source)
         batch_payload = {
             "language": language,
             "batch_index": batch_index,
@@ -199,6 +217,12 @@ def prepare_translation_batches(
         "prompt_path": _relative_to_root(root, prompt_used),
         "batches": plan_batches,
         "agent_workflow": agent_workflow,
+        "version_diff": {
+            "status": version_references.status,
+            "path": version_references.path,
+            "reference_source_count": len(reference_sources),
+            "warnings": list(version_references.warnings),
+        },
     }
     _write_json(output_dir / "plan.json", plan)
     return PrepareTranslationReport(
@@ -299,6 +323,8 @@ def _translation_entry(
     vscode_memory: VscodeTranslationIndex | None = None,
     vscode_reference_count: int = 3,
     context_group: dict[str, Any] | None = None,
+    version_reference_index: VersionReferenceIndex | None = None,
+    language: str | None = None,
 ) -> dict[str, Any]:
     occurrences = manifest_entry.get("occurrences", [])
     first_occurrence = (
@@ -323,6 +349,14 @@ def _translation_entry(
         )
         if references:
             entry["vscode_references"] = references
+    if version_reference_index is not None and language is not None:
+        previous_references = version_reference_index.references_for(
+            source,
+            language,
+            occurrences,
+        )
+        if previous_references:
+            entry["previous_version_references"] = previous_references
     return entry
 
 
@@ -377,6 +411,11 @@ def _batch_prompt(base_prompt: str, batch_payload: dict[str, Any]) -> str:
             "Use `null` when the item should be left for manual review. "
             "When an entry has `vscode_references`, treat them as VS Code language-pack "
             "translation-memory hints, not mandatory replacements. "
+            "`previous_version_references` are optional historical translation hints and do "
+            "not guarantee equivalent meaning. Decide whether to reuse, adapt, or ignore "
+            "them using the current source, code context, context group, style guide, and "
+            "glossary; current placeholders and protected tokens win, and only the current "
+            "source key may be output. "
             "When an entry has `context_group`, use the grouped title/description/option, "
             "connected-line context, or prompt-component context to keep related translations "
             "consistent, but still output only the exact `source` keys listed in this batch's "
@@ -424,6 +463,91 @@ def _read_json_if_exists(path: Path) -> dict:
     if not path.exists():
         return {}
     return _read_json(path)
+
+
+def _reject_version_report_overlap(
+    root: Path,
+    output_dir: Path,
+) -> None:
+    lexical_version_diff_dir = _absolute_without_resolving_links(
+        root / "reports" / "version-diff"
+    )
+    lexical_target = _absolute_without_resolving_links(output_dir)
+    if _paths_overlap(lexical_version_diff_dir, lexical_target):
+        raise ValueError(
+            "translation output directory must not overlap the reserved version-diff report tree"
+        )
+
+    try:
+        resolved_target = output_dir.resolve()
+    except (OSError, RuntimeError):
+        return
+    protected_paths = _resolved_version_diff_paths(lexical_version_diff_dir)
+    if any(_paths_overlap(path, resolved_target) for path in protected_paths):
+        raise ValueError(
+            "translation output directory must not overlap the reserved version-diff report tree"
+        )
+
+
+def _absolute_without_resolving_links(path: Path) -> Path:
+    return Path(os.path.abspath(path))
+
+
+def _paths_overlap(first: Path, second: Path) -> bool:
+    return first == second or first in second.parents or second in first.parents
+
+
+def _resolved_version_diff_paths(version_diff_dir: Path) -> set[Path]:
+    protected: set[Path] = set()
+    try:
+        protected.add(version_diff_dir.resolve())
+    except (OSError, RuntimeError):
+        pass
+    try:
+        exists_or_link = (
+            version_diff_dir.exists()
+            or version_diff_dir.is_symlink()
+            or _is_junction(version_diff_dir)
+        )
+    except (OSError, RuntimeError):
+        return protected
+    if not exists_or_link:
+        return protected
+
+    try:
+        for directory in version_diff_dir.iterdir():
+            from_version, separator, to_version = directory.name.rpartition("-to-")
+            if not separator or not from_version or not to_version:
+                continue
+            try:
+                protected.add(directory.resolve())
+            except (OSError, RuntimeError):
+                pass
+            report_path = directory / "key-changes.json"
+            try:
+                report_exists_or_link = (
+                    report_path.exists()
+                    or report_path.is_symlink()
+                    or _is_junction(report_path)
+                )
+            except (OSError, RuntimeError):
+                continue
+            if not report_exists_or_link:
+                continue
+            try:
+                resolved_report = report_path.resolve()
+            except (OSError, RuntimeError):
+                continue
+            protected.add(resolved_report)
+            protected.add(resolved_report.parent)
+    except (OSError, RuntimeError):
+        pass
+    return protected
+
+
+def _is_junction(path: Path) -> bool:
+    is_junction = getattr(path, "is_junction", None)
+    return bool(is_junction is not None and is_junction())
 
 
 def _safe_translation_workspace(root: Path, language: str, output_dir: Path) -> Path:

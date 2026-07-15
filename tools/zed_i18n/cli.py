@@ -21,6 +21,7 @@ from .translation_pipeline import (
     prepare_translation_batches,
 )
 from .validate import validate_translations
+from .version_diff import generate_version_diff
 from .zed_source import build_clone_command, ensure_inside_workspace, verify_checkout_revision
 
 
@@ -130,6 +131,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Defaults to reports/context-groups/<language>.",
     )
 
+    version_diff_parser = subparsers.add_parser("generate-version-diff")
+    version_diff_parser.add_argument(
+        "--base-ref",
+        default="HEAD",
+        help="Git revision containing the previous version. Defaults to HEAD.",
+    )
+
     packaging_parser = subparsers.add_parser("generate-packaging")
     packaging_parser.add_argument("--manifest", required=True, help="Release manifest.json path.")
     packaging_parser.add_argument(
@@ -190,6 +198,8 @@ def main(argv: list[str] | None = None) -> int:
             args.group_type,
             args.output_dir,
         )
+    if args.command == "generate-version-diff":
+        return run_generate_version_diff(root, args.base_ref)
     if args.command == "generate-packaging":
         return run_generate_packaging(
             root,
@@ -334,6 +344,7 @@ def run_prepare_translation(
     vscode_source_root: str | None = ".cache/vscode-upstream",
     vscode_reference_count: int = 3,
 ) -> int:
+    config = load_project_config(root)
     output_path = _resolve_optional_workspace_path(root, output_dir)
     prompt_path = _resolve_optional_workspace_path(root, prompt)
     vscode_loc_path = _resolve_optional_workspace_path(root, vscode_loc_root)
@@ -351,8 +362,8 @@ def run_prepare_translation(
         vscode_loc_root=vscode_loc_path,
         vscode_source_root=vscode_source_path,
         vscode_reference_count=vscode_reference_count,
+        current_version=config.zed_version,
     )
-    config = load_project_config(root)
     checkout_path = resolve_zed_root(root, config, zed_root)
     report = prepare_translation_batches(
         root=root,
@@ -383,6 +394,18 @@ def run_generate_packaging(
     generate_packaging_files(manifest_path, cask_path, bucket_path, expected_locales)
     print(f"Generated Homebrew cask: {_relative_to_root(root, cask_path)}")
     print(f"Generated Scoop bucket manifests: {_relative_to_root(root, bucket_path)}")
+    return 0
+
+
+def run_generate_version_diff(root: Path, base_ref: str) -> int:
+    generated = generate_version_diff(root, base_ref=base_ref)
+    summary = generated.report["summary"]
+    print(
+        f"Generated version diff: {summary['added']} added, "
+        f"{summary['deleted']} deleted, "
+        f"{summary['candidate_pairs']} candidates: "
+        f"{_relative_to_root(root, generated.output_path)}"
+    )
     return 0
 
 

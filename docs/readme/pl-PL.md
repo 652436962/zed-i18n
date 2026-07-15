@@ -99,15 +99,19 @@ Docelowa wersja Zed jest określona w `config/project.toml`. Polecenie `fetch-ze
 
 ```powershell
 uv run zed-i18n fetch-zed
-uv run zed-i18n extract --zed-root .cache/zed/v1.10.3-clean-extract
-uv run zed-i18n audit-candidates --zed-root .cache/zed/v1.10.3-clean-extract
-uv run zed-i18n prepare-translation --language ko-KR --zed-root .cache/zed/v1.10.3-clean-extract
+uv run zed-i18n extract --zed-root .cache/zed/<version>-clean-extract
+# Tylko podczas aktualizacji wersji
+uv run zed-i18n generate-version-diff
+uv run zed-i18n audit-candidates --zed-root .cache/zed/<version>-clean-extract
+uv run zed-i18n prepare-translation --language ko-KR --zed-root .cache/zed/<version>-clean-extract
 uv run zed-i18n merge-translation --language ko-KR
 uv run zed-i18n validate --language ko-KR
 uv run zed-i18n apply --language ko-KR
 ```
 
 Polecenie `extract` przeszukuje źródła Rust edytora Zed w poszukiwaniu kandydatów na ciągi interfejsu użytkownika i zapisuje je do `catalog/en-US.json` oraz `manifest/ui-strings.json`. Wyniki tłumaczeń są przechowywane w `translations/<language>.json`.
+
+Podczas aktualizacji wersji `generate-version-diff` zapisuje zmiany kluczy względem poprzedniej wersji do pliku `key-changes.json` w katalogu `reports/version-diff/`, a `prepare-translation` automatycznie go odczytuje i dołącza do partii wcześniejsze tłumaczenia podobnych kluczy jako materiały referencyjne. Partie zostaną wygenerowane poprawnie także bez tego raportu.
 
 Nowo odkryte ciągi trafiają do `manifest/ui-strings.json` ze statusem `needs_review`. Tylko ciągi faktycznie wyświetlane w interfejsie użytkownika powinny zostać oznaczone jako `accepted`, a następnie przetłumaczone.
 

@@ -10,6 +10,7 @@ If `uv` cannot launch on Windows, fall back to `.\.venv\Scripts\python.exe -m to
 |---|---|
 | `fetch-zed` | Clone the Zed release configured in `config/project.toml` to `.cache/zed/<version>` and `.cache/zed/<version>-clean-extract` |
 | `extract --zed-root <path>` | Parse Rust sources and write `catalog/en-US.json` + `manifest/ui-strings.json` |
+| `generate-version-diff [--base-ref <ref>]` | Compare the Git baseline with the current extract and write version-change references under `reports/version-diff/` |
 | `audit-candidates --zed-root <path>` | Audit string candidates against extraction rules; report to `reports/` |
 | `prepare-translation --language <lang>` | Generate translation batch prompts under `reports/translation/<lang>/` |
 | `extract-context-groups --language <lang>` | Extract grouped setting title/description, connected multi-line, and prompt-component review reports to `reports/context-groups/<lang>/` |
@@ -29,7 +30,9 @@ Key flags for `merge-translation`: `--results-dir` (agent JSON results), `--outp
 ```
 fetch-zed
   → extract  (on clean checkout)
+  → generate-version-diff  (version bumps only)
   → audit-candidates  (on clean checkout)
+  → [candidate/status review]
   → prepare-translation
   → [AI agents write batch results]
   → merge-translation
@@ -42,10 +45,14 @@ fetch-zed
 - `.cache/zed/<version>-clean-extract` — for `extract`, `audit-candidates`, `prepare-translation` source context. Never apply translations to this checkout.
 - `.cache/zed/<version>` — for `apply` and local builds.
 - Do not delete `.cache/zed` or run `cargo clean` unless the user explicitly asks.
-- When bumping the Zed version in `config/project.toml`, manually review the `distribution.py` patch targets against the fetched Zed checkout before release work.
+- When bumping the Zed version in `config/project.toml`, manually review the `distribution.py` patch targets and the `config/distribution.toml` overlay against the fetched Zed checkout before release work.
 - When bumping the Zed version, update `README.md` and every `docs/readme/*.md` localized README so badges, release links, and example checkout paths match `config/project.toml`.
 - After bumping the Zed version and running `fetch-zed`, run the Zed patch contract test before release work:
   `ZED_I18N_REQUIRE_ZED_PATCH_CONTRACT=1 ZED_I18N_PATCH_CONTRACT_ZED_ROOT=.cache/zed/<version> uv run python -m unittest tests.test_zed_patch_contracts`.
+- After a version-bump extract, run `uv run zed-i18n generate-version-diff` (or pass `--base-ref <ref>` for a non-default baseline). The command reads the Git baseline and writes the gitignored, regeneratable report at `reports/version-diff/<from-version>-to-<to-version>/key-changes.json`.
+- The main orchestrator only runs the generator command. It must not compare keys, classify semantic relationships, rewrite candidates, or distribute candidate records to translation agents.
+- During a version bump, investigate key changes for the bump report, not for translation (reference injection stays automatic): sweep the upstream changes between the old and new clean checkouts for user-visible strings that never landed in the catalog (extraction gaps), treat report `candidates` as likely renamed or reshaped keys, and check deleted keys without candidates against the new checkout before concluding they are truly gone.
+- A version bump ends with a user-facing summary of added and deleted keys that flags likely renamed/reshaped pairs; do not translate new keys during the bump itself. New-key translation is a separate follow-up run driven by `prompts/commands/translation-start-new-keys.md`.
 - If Zed-side changes require code updates during a version bump, update this project for the current target Zed version instead of preserving compatibility with older Zed versions.
 
 ## Translation Workflow
@@ -55,6 +62,8 @@ fetch-zed
 - `prepare-translation` writes batch prompts to `reports/translation/<language>/` (default) or a custom `--output-dir`.
 - `prepare-translation` keeps grouped setting title/description entries, adjacent connected-line entries, and prompt-component entries in the same batch where possible. Batch entries may include a `context_group` object with sibling strings and existing translations for review context; sub-agents still output only the exact source keys assigned in `entries`.
 - Use `extract-context-groups --language <language>` when you need review-only reports that pair setting titles with descriptions, show connected multi-line strings, or group composed prompt/message box pieces without running a translation batch.
+- During a version bump, `prepare-translation` automatically loads exactly one valid report for the current version and injects locale-specific `previous_version_references` into matching batch entries. Missing, invalid, or ambiguous reports are non-blocking and produce no references.
+- Translation and validation agents treat `previous_version_references` only as optional historical hints. They decide whether a hint still applies using the current source, code context, context group, style guide, and glossary; current placeholders and protected tokens win, and results contain only current source keys.
 - Each translation sub-agent writes only its assigned `results/batch-###.json`.
 - After merging into the final `translations/<language>.json`, always run `validate --language <language>`. Success removes the temporary `reports/translation/<language>` workspace unless `--no-cleanup` is passed.
 
@@ -90,6 +99,7 @@ The final `translations/<lang>.json` is produced by reviewing model outputs — 
 - `reports/context-groups/` stores review-only grouped setting, connected-line, and prompt-component reports generated by `extract-context-groups`.
 - `reports/translation-runs/` stores per-model translation batch data, preserved across runs.
 - `reports/translation-review/` stores generated review workspaces for new-key model comparisons.
+- `reports/version-diff/<from-version>-to-<to-version>/key-changes.json` is the gitignored, regeneratable version-diff report that `prepare-translation` automatically consumes when exactly one valid current-version report exists.
 - `.cache/non_translated_result` contains user review material and should be preserved unless the user says otherwise.
 
 ## Key Paths
@@ -103,6 +113,7 @@ prompts/translation/          — language style guides and glossaries
 prompts/commands/             — orchestration prompts for AI-driven runs
 reports/                      — generated reports (gitignored except README.md)
 reports/context-groups/<lang>/ — grouped setting, connected-line, and prompt-component review reports
+reports/version-diff/<from-version>-to-<to-version>/key-changes.json — generated version-diff translation references
 config/project.toml           — target Zed version and repo settings
 config/distribution.toml      — release-only branding/updater overlay used by CI builds, not normal `apply`
 ```

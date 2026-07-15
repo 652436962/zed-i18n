@@ -16,73 +16,59 @@ LANGUAGE SCOPE: ALL FINAL TRANSLATION FILES
 
 You are orchestrating an incremental translation job for every existing final Zed locale. This prompt is only for newly accepted strings that do not yet exist in each `translations/<LANG>.json` file. It is not a full retranslation run and it must not update the final translation files.
 
-Read this whole prompt, then execute the phases in order. After every phase, output a single line: `✅ Phase N — <one-line result>`.
+Read this whole prompt, then execute the steps in order. After every step, output a single line: `✅ Step N — <one-line result>`.
 
-**Respond to the user in Korean throughout this task.** All status updates, phase summaries, and the final report MUST be written in Korean. Code, file paths, command lines, JSON keys/values, and CLI output stay as-is — do not translate those. Translation results themselves must be written into each target language according to that locale's batch prompt, style guide, glossary, and existing translations.
+**Respond to the user in Korean throughout this task.** All status updates, step summaries, and the final report MUST be written in Korean. Code, file paths, command lines, JSON keys/values, and CLI output stay as-is. Translation results must use each locale's generated batch prompt, style guide, glossary, and existing translations.
 
-**Run autonomously end-to-end.** This is a routine all-language incremental translation job. Once started, drive the work through discovery, missing-only preparation, per-language translation, new-key-only artifact creation, partial validation, per-language validation review, fixes, and final reporting without pausing for user confirmation between phases. Phase markers (`✅ Phase N — …`) are progress reports, NOT approval gates. The only time you stop and wait for the user is if you hit one of the **Anomaly stop conditions** at the bottom of this prompt.
+**Run autonomously end-to-end.** Drive discovery, missing-only preparation, translation, new-key-only artifact creation, partial validation, independent review, fixes, and final reporting without pausing between steps. Step markers are progress reports, not approval gates. Stop only for an anomaly listed at the end.
 
 ---
 
-## Phase 0 — Project Discovery
+## Step 0 — Project Discovery
 
-Before any translation work, ground yourself in the repository:
+1. List the repository root and read the target Zed version from `config/project.toml`.
+2. Read `AGENTS.md` and `README.md` end-to-end when present.
+3. Skim `tools/zed_i18n/translation_pipeline.py` to confirm that `prepare-translation` defaults to missing-only, `--all` opts into a full run, and `merge-translation` produces a full merged file.
+4. Confirm these required paths:
+   - `manifest/ui-strings.json`
+   - `.cache/zed/<zed-version>-clean-extract`
+   - `prompts/translation/`
+   - `translations/`
+5. Discover final locales from direct `translations/<LANG>.json` files. Exclude model-scoped, comparison, backup, temporary, and scratch files.
+6. Confirm `prompts/translation/<LANG>.md` exists for every locale.
+7. Confirm that this run targets only manifest entries with `status == "accepted"` that are absent from the locale's final translation file.
 
-1. List the repo root; note the top-level layout, check Zed version using `config\project.toml`.
-2. Read `AGENTS.md` end-to-end (if it exists).
-3. Read `README.md` end-to-end.
-4. Skim `tools/zed_i18n/translation_pipeline.py` to confirm:
-   - `prepare-translation` defaults to missing-only.
-   - `--all` is the opt-in full-run flag and must not be used here.
-   - batch entries may include `context_group` review context for grouped settings, connected multi-line strings, and prompt-component strings.
-   - `merge-translation` reads `translations/<LANG>.json` and writes a full merged translation file, so it MUST NOT be used for this review artifact.
-5. Confirm these paths exist:
-   - `manifest/ui-strings.json` — accepted translation targets
-   - `.cache/zed/<zed-version>-clean-extract` — clean Zed checkout used as source
-   - `prompts/translation/` — target-language style guides and glossary material
-   - `translations/` — existing final translation files
-6. Discover target languages from `translations/*.json`.
-   - Include final locale files such as `ko-KR.json`, `ja-JP.json`, `zh-CN.json`.
-   - Exclude model-scoped or comparison artifacts such as `ko-KR.gpt-5.5.json`.
-   - Exclude backup, temporary, or generated scratch files.
-7. For every target language, confirm `prompts/translation/<LANG>.md` exists. If a style guide is missing for any target language, treat it as an anomaly stop.
-8. Confirm that this run will translate only manifest entries where `status == "accepted"` and the source string is absent from that language's `translations/<LANG>.json`.
-
-Output a 5–8 line summary of findings (in Korean): detected target languages, Zed version, clean checkout path, and any anomaly. **If no anomaly was found, proceed directly to Procedure step 1 in the same response — do not pause for confirmation.**
+Output a short Korean discovery summary, then continue directly to Step 1 when no anomaly exists.
 
 ---
 
 ## Goals
 
-- Translate only newly accepted strings missing from each existing final `translations/<LANG>.json`.
-- Preserve every existing final translation file exactly. Treat `translations/<LANG>.json` as read-only reference material.
-- Save each language's new translations to `translations/<LANG>.<MODEL_SLUG>.json`.
-- Ensure `translations/<LANG>.<MODEL_SLUG>.json` contains only new keys from this run, never pre-existing translations.
-- For each language, use one translation sub-agent per generated batch for that language.
-- For each language, use a separate validation sub-agent after the new-key-only artifact is created, so translation generation and review do not contaminate each other.
-- The validation sub-agent must review with the language style guide, translation glossary/dictionary material, and existing translations as references.
-- Never use `--all`. This run must stay missing-only for every language.
-- Never use `merge-translation` for the final review artifact, because it produces full merged files rather than new-key-only files.
+- Translate only newly accepted strings missing from each final `translations/<LANG>.json`.
+- Treat every final translation file as read-only reference material.
+- The only file under `translations/` that this workflow may write is `translations/<LANG>.<MODEL_SLUG>.json`; it contains only keys planned for this run.
+- Use one translation sub-agent per generated batch and one separate validation sub-agent per locale.
+- Never use `--all` or `merge-translation` in this workflow.
 
 ---
 
 ## Procedure
 
-### 1. Resolve The Model Slug
+### Step 1 — Resolve The Model Slug
 
-Take the model name from the top of this prompt and derive `<MODEL_SLUG>`: lowercase, hyphenated, filesystem-safe (for example `sonnet-4.6`, `gpt-5.5`, `gpt-5.3-codex`). Use this slug everywhere `<MODEL_SLUG>` appears below.
+Derive `<MODEL_SLUG>` from the model name at the top: lowercase, hyphenated, and filesystem-safe, such as `sonnet-4.6`, `gpt-5.5`, or `gpt-5.3-codex`.
 
-Each language's final review artifact is:
+Each locale's review artifact is:
 
-```
+```text
 translations/<LANG>.<MODEL_SLUG>.json
 ```
 
-### 2. Prepare Missing-Only Batches For Every Language
+### Step 2 — Prepare Missing-Only Batches
 
-For each target language `<LANG>`, run `prepare-translation` without `--all`. The default behavior is missing-only: accepted strings already present in `translations/<LANG>.json` are excluded.
+For each `<LANG>`, run:
 
-```
+```text
 uv run zed-i18n prepare-translation \
   --language <LANG> \
   --zed-root .cache/zed/<zed-version>-clean-extract \
@@ -90,69 +76,46 @@ uv run zed-i18n prepare-translation \
   --output-dir reports/translation-runs/<LANG>/<MODEL_SLUG>
 ```
 
-If `.cache/vscode-loc` exists, `prepare-translation` automatically adds optional `vscode_references` translation-memory hints to matching entries. `.cache/vscode-upstream` improves English source recovery for those hints. Missing VS Code reference checkouts are normal and are NOT an anomaly.
+Do not pass `--all`. If `.cache/vscode-loc` exists, preparation may add `vscode_references`; `.cache/vscode-upstream` may improve their English source context. Both checkouts are optional.
 
-Missing-only batches may still include already-translated sibling strings inside an entry's `context_group`. Treat those sibling translations as read-only context for setting title/description/option consistency, connected-line flow, or prompt/message composition; do not write them into the new-key-only result artifact unless the same source string is part of the planned batch source set. For short settings enum labels, `context_group` may include `source_comment` from the Rust enum variant doc comment; use that as meaning context, not as extra output text.
+`prepare-translation` automatically includes locale-specific `previous_version_references` in generated batch entries when a usable current-version report is available. These are optional historical translation hints and do not guarantee equivalent meaning. Translation and validation agents must follow the interpretation rule in the generated batch: decide whether to reuse, adapt, or ignore a hint using current source context, context groups, the style guide, and glossary; current placeholders and protected tokens win, and only the current source key may be output. No historical reference is required for normal translation.
 
-After each preparation step, read `reports/translation-runs/<LANG>/<MODEL_SLUG>/plan.json` and confirm:
+Generated entries may also contain `context_group` siblings for settings, connected lines, or composed prompts. These siblings and their translations are read-only context, not additional output keys. For short settings enum labels, `source_comment` may clarify the Rust enum variant.
 
-- `missing_only` is `true`
-- `source_count` is the number of new keys to translate for that language
-- every batch listed under `batches` has a matching prompt file under `reports/translation-runs/<LANG>/<MODEL_SLUG>/prompts/`
+Read each generated `plan.json` and confirm:
 
-If `source_count` is `0` for a language, mark that language as complete with no new work and do not create or modify `translations/<LANG>.<MODEL_SLUG>.json` for that language.
+- `missing_only` is `true`;
+- `source_count` matches the new-key target count;
+- every listed batch has a matching generated prompt.
 
-### 3. Dispatch One Translation Sub-Agent Per Language Batch
+If `source_count` is `0`, mark the locale complete and do not create or modify its model artifact.
 
-For every language with `source_count > 0`, read that language's `plan.json` and spawn exactly one translation sub-agent for each generated batch.
+### Step 3 — Dispatch Translation Sub-Agents
 
-Give each translation sub-agent:
+For every locale with work, spawn exactly one translation sub-agent per generated batch. Give it:
 
-- exactly one generated `reports/translation-runs/<LANG>/<MODEL_SLUG>/prompts/batch-XXX.md`
-- `prompts/translation/<LANG>.md`
-- relevant glossary/dictionary references under `prompts/translation/glossary/` if they exist
-- the existing `translations/<LANG>.json` as translation-memory and style reference only
+- exactly one generated `prompts/batch-XXX.md`;
+- `prompts/translation/<LANG>.md`;
+- the relevant curated glossary under `prompts/translation/glossary/`, when present;
+- `translations/<LANG>.json` as read-only terminology and style reference.
 
-Tell it:
+Tell each agent to follow the assigned batch prompt verbatim, including its historical-reference interpretation rule and output path. It must output only the exact current source keys assigned by the batch, use `context_group` only as context, and touch only its declared `results/batch-XXX.json`.
 
-- You are translating only newly accepted, missing keys for `<LANG>` in batch `batch-XXX`.
-- Follow the assigned batch prompt verbatim.
-- Use any `context_group` data as read-only sibling/flow/composition context.
-- If `kind` is `settings_enum_variant_label` or `settings_enum_discriminant_label`, treat the source as a visible settings option label. Use setting/context siblings and any `source_comment`; do not apply a glossary row just because the English token matches.
-- Use the style guide, glossary/dictionary references, and existing translations to keep terminology and tone consistent.
-- Write the result JSON only to the `output.result_file` path declared inside the assigned batch prompt.
-- Do not touch anything else.
-- Do not modify `translations/<LANG>.json`, `translations/<LANG>.<MODEL_SLUG>.json`, the manifest, prompt files, or batch files.
+If `kind` is `settings_enum_variant_label` or `settings_enum_discriminant_label`, treat the source as a visible settings option label. Use setting siblings and any `source_comment`; do not apply a glossary row solely because an English token matches.
 
-You may run the per-language and per-batch translation sub-agents in parallel if the environment can handle it. Keep each batch isolated: one translation sub-agent owns one language batch.
+Run independent batches in parallel when practical. Reuse the same sub-agent to repair a missing or invalid result when possible.
 
-If a result file is missing or invalid, re-use that batch's existing translation sub-agent when possible and ask it to fix only the failed batch. Do not spawn extra translation sub-agents for the same language batch unless the existing one is unavailable or failed irrecoverably.
+### Step 4 — Create New-Key-Only Review Artifacts
 
-### 4. Create New-Key-Only Review Artifacts
+Do not run `merge-translation`. For each locale, combine completed result files into:
 
-Do NOT run `merge-translation`.
-
-For each language with completed result files, collect that language's result JSON files into:
-
-```
+```text
 translations/<LANG>.<MODEL_SLUG>.json
 ```
 
-The output file must contain only valid translations for source strings listed in that language's generated batches. It must not include any key already present in `translations/<LANG>.json`.
+Read the planned keys from `batches/batch-XXX.json` and translations from `results/batch-XXX.json`. Keep only planned keys, drop and count `null` values, reject non-string or unknown values, stop on conflicting duplicates, and sort keys according to repository JSON style.
 
-When collecting results:
-
-- Read the planned source strings from `reports/translation-runs/<LANG>/<MODEL_SLUG>/batches/batch-XXX.json`.
-- Read translations from `reports/translation-runs/<LANG>/<MODEL_SLUG>/results/batch-XXX.json`.
-- Keep only keys that are in the planned source set.
-- Drop `null` values from the output artifact and count them in the summary.
-- Treat non-string values as invalid and do not write them.
-- Treat unknown source keys as invalid and do not write them.
-- If the same source appears more than once with different translations, stop for that language and inspect before writing.
-- Sort output keys consistently with the repo's JSON style.
-- Write a summary to `reports/translation-runs/<LANG>/<MODEL_SLUG>/new-key-summary.json`.
-
-The summary should include:
+Write `reports/translation-runs/<LANG>/<MODEL_SLUG>/new-key-summary.json` with:
 
 - `language`
 - `model_slug`
@@ -164,144 +127,81 @@ The summary should include:
 - `duplicate_conflicts`
 - `output`
 
-### 5. Run Partial Mechanical Validation
+### Step 5 — Run Partial Mechanical Validation
 
-Do not run `uv run zed-i18n validate --language <LANG>` as the main validation for `translations/<LANG>.<MODEL_SLUG>.json`; that CLI validates the full final file, while this artifact is intentionally partial.
-
-For each new-key-only artifact, run a partial validation against only the newly translated keys:
-
-- Every output key must be an accepted manifest source.
-- Every output key must be absent from `translations/<LANG>.json`.
-- Every output key must appear in the generated batch source set.
-- Placeholders must match the source.
-- Protected tokens must match the source.
-- The output file must contain no pre-existing translation keys.
-
-Use the same helper logic as the pipeline where applicable:
+Do not use the full-file `validate --language` command on a partial model artifact. For each artifact, verify that every key is accepted, absent from the final translation file, and present in the generated batch plan. Also verify placeholders and protected tokens with:
 
 - `tools.zed_i18n.rust_strings.rust_format_placeholders`
 - `tools.zed_i18n.translation_checks.protected_tokens_match`
 
-Write the partial validation report to:
+Write results to `reports/translation-runs/<LANG>/<MODEL_SLUG>/partial-validation.json`. Fix only affected entries and rerun this validation until it passes.
 
-```
-reports/translation-runs/<LANG>/<MODEL_SLUG>/partial-validation.json
-```
+### Step 6 — Dispatch One Validation Sub-Agent Per Locale
 
-If partial validation reports placeholder or protected-token mismatches, fix only the affected entries in `translations/<LANG>.<MODEL_SLUG>.json` and rerun the partial validation.
+After mechanical validation passes, spawn one fresh validation sub-agent per locale. Give it the locale's `plan.json`, batch and result JSON files, summary, partial validation report, model artifact, final translation file, style guide, and glossary.
 
-### 6. Dispatch One Validation Sub-Agent Per Language
+Tell the reviewer to:
 
-After partial mechanical validation passes for `<LANG>`, spawn exactly one separate validation sub-agent for that language. This must be a new sub-agent that did not perform the translation.
+- review only this run's new-key artifact;
+- use batch source context, `context_group`, and `previous_version_references` according to the batch interpretation rule;
+- treat short settings enum strings as visible option labels and inspect siblings and `source_comment`;
+- check terminology, tone, UI brevity, placeholders, protected tokens, code spans, URLs, paths, config keys, action IDs, and capitalization;
+- report issues by severity with exact current source strings and suggested replacements;
+- confirm that no pre-existing key appears in the model artifact;
+- avoid editing files until given a narrow correction task.
 
-Give that validation sub-agent:
+### Step 7 — Apply Review Fixes
 
-- `reports/translation-runs/<LANG>/<MODEL_SLUG>/plan.json`
-- every generated `reports/translation-runs/<LANG>/<MODEL_SLUG>/batches/batch-XXX.json`
-- every generated `reports/translation-runs/<LANG>/<MODEL_SLUG>/results/batch-XXX.json`
-- `reports/translation-runs/<LANG>/<MODEL_SLUG>/new-key-summary.json`
-- `reports/translation-runs/<LANG>/<MODEL_SLUG>/partial-validation.json`
-- `translations/<LANG>.<MODEL_SLUG>.json`
-- `translations/<LANG>.json`
-- `prompts/translation/<LANG>.md`
-- relevant glossary/dictionary references under `prompts/translation/glossary/` if they exist
+Apply only clear, actionable findings to `translations/<LANG>.<MODEL_SLUG>.json`. Do not edit the final translation file or unrelated entries. Rerun partial validation after every correction. Keep the existing translation when a review offers only subjective alternatives.
 
-Tell it:
+### Step 8 — Optional Integration Sanity Check
 
-- You are reviewing only the new-key-only artifact from this run.
-- Use the batch files to identify source strings and source context.
-- Use any `context_group` data in the batch files to review grouped settings, connected multi-line strings, and prompt-component strings together.
-- For short settings enum labels, inspect `kind`, sibling options, setting title/description context, any `source_comment`, and source occurrences before judging the translation.
-- Use `translations/<LANG>.<MODEL_SLUG>.json` to inspect the proposed new translations.
-- Use `translations/<LANG>.json` only as existing translation memory and style reference.
-- Use `prompts/translation/<LANG>.md` as the primary translation prompt and style guide.
-- Use glossary/dictionary references and existing translations as terminology and tone references.
-- Check placeholder preservation, code spans, URLs, file paths, configuration keys, action IDs, capitalization conventions, UI brevity, and consistency with existing translations.
-- Confirm that `translations/<LANG>.<MODEL_SLUG>.json` contains only newly translated keys and no pre-existing keys.
-- Report issues by severity and include exact source strings and suggested replacements.
-- Do not edit files unless explicitly instructed by the orchestrator after review.
+When useful, validate an in-memory combination of the final translation dictionary and the new-key-only artifact. Do not write the combined dictionary back to the final locale file. Any report belongs at `reports/translation-runs/<LANG>/<MODEL_SLUG>/integration-validation.json`.
 
-The validation sub-agent's job is quality review, not translation generation. Keep this role separate to reduce prompt contamination.
+### Step 9 — Final Report
 
-### 7. Apply Review Fixes To New-Key Artifacts Only
+Report in Korean:
 
-For each language, review the validation sub-agent's findings.
-
-- Apply only clear, actionable fixes to `translations/<LANG>.<MODEL_SLUG>.json`.
-- Do not rewrite unrelated entries in the new-key artifact.
-- Do not edit `translations/<LANG>.json`.
-- If the review raises subjective alternatives, keep the current translation unless the issue is clearly harmful or inconsistent with the language guide.
-- After any fix, rerun partial mechanical validation for that language.
-- If a fix affects terminology likely shared across multiple languages, inspect the same source string in other newly translated model artifacts before finalizing.
-
-### 8. Optional Full Integration Sanity Check
-
-If you want an extra safety check, create an in-memory combined dictionary from:
-
-- existing `translations/<LANG>.json`
-- new-key-only `translations/<LANG>.<MODEL_SLUG>.json`
-
-Then run the repository's validation helper against that combined dictionary without writing it back to `translations/<LANG>.json`. If you need a temporary report, write it under:
-
-```
-reports/translation-runs/<LANG>/<MODEL_SLUG>/integration-validation.json
-```
-
-This step is only a sanity check. It must not produce or overwrite a full merged translation file.
-
-### 9. Final Report
-
-Output a summary block in Korean:
-
-- 대상 언어 수
-- 언어별 신규 번역 대상 수
-- 언어별 `translations/<LANG>.<MODEL_SLUG>.json` 작성 문자열 수
-- 언어별 `null` 반환 수
-- 언어별 unknown source 수
-- 언어별 invalid value 수
-- 언어별 duplicate conflict 수
-- 언어별 placeholder mismatch 수
-- 언어별 protected token mismatch 수
-- 검증 서브 에이전트가 제기한 주요 수정 사항
-- 사람이 추가로 보면 좋을 샘플 5–10개
-- 전반적인 신규 번역 품질 인상 (2–4문장)
+- target locale count;
+- per-locale planned and written counts;
+- per-locale `null`, unknown-source, invalid-value, and duplicate-conflict counts;
+- per-locale placeholder and protected-token mismatch counts;
+- important fixes raised by validation sub-agents;
+- 5–10 samples worth human review;
+- a brief overall quality assessment.
 
 ---
 
 ## Hard Constraints
 
-- Never run `prepare-translation` with `--all` in this prompt.
-- Do not perform a full retranslation.
-- Do not run `merge-translation` for this prompt's output artifact.
-- Do not update final locale files `translations/<LANG>.json`.
-- The only translation artifacts this run may write are `translations/<LANG>.<MODEL_SLUG>.json`, and each must contain only new keys from this run.
-- Never write pre-existing `translations/<LANG>.json` entries into `translations/<LANG>.<MODEL_SLUG>.json`.
-- Translation sub-agents MUST NOT modify batch files, prompt files, the manifest, or any translation file.
-- Validation sub-agents MUST NOT modify files unless the orchestrator explicitly asks for a narrowly scoped correction.
-- Each translation sub-agent MUST write only assigned `results/batch-XXX.json` files for its own language.
-- JSON keys in result files and model artifacts MUST equal the source string byte-for-byte — no whitespace fixes, no Unicode folding, no normalization.
-- `context_group` sibling strings are context, not permission to add pre-existing or unplanned keys to result files or model artifacts.
-- If a string looks like an internal ID or code enum value, return `null`; but if `kind` is `settings_enum_variant_label` or `settings_enum_discriminant_label`, treat it as a visible settings option label and translate it using setting/context siblings. Do not guess when context is insufficient.
-- Preserve all placeholders, code spans, URLs, file paths, config keys, and action IDs verbatim.
-- Keep translation generation and translation review in separate sub-agents.
+- Never pass `--all`, perform a full retranslation, or run `merge-translation`.
+- Never update `translations/<LANG>.json`.
+- Model artifacts contain only newly planned current keys from this run.
+- Translation sub-agents write only their assigned result file and never modify batch files, prompts, manifests, or translation artifacts.
+- Validation sub-agents do not edit files without a narrowly scoped correction request.
+- Result and model-artifact keys equal planned source strings byte-for-byte; do not normalize them.
+- `context_group` siblings are context, not permission to add keys.
+- Return `null` for internal IDs or code enum values when context is insufficient, except visible `settings_enum_variant_label` and `settings_enum_discriminant_label` values should be translated using their settings context.
+- Preserve placeholders, code spans, URLs, file paths, config keys, and action IDs verbatim.
+- Keep translation generation and translation review in separate agents.
 
 ---
 
 ## Anomaly Stop Conditions
 
-The happy path runs end-to-end without check-ins. Stop, report what happened in Korean, and wait for the user ONLY in these cases:
+Stop and wait for the user only when:
 
-- No final target languages can be discovered under `translations/*.json`.
-- `prompts/translation/<LANG>.md` does not exist for one or more target languages.
-- `tools/zed_i18n/translation_pipeline.py` CLI flags have diverged from what this prompt assumes.
-- Any prepare step is not missing-only, or `plan.json` shows `missing_only` is not `true`.
-- A scoped action would touch anything outside `reports/translation-runs/<LANG>/<MODEL_SLUG>/` or `translations/<LANG>.<MODEL_SLUG>.json`.
-- A process attempts to write, overwrite, or merge into `translations/<LANG>.json`.
-- A process attempts to create `translations/<LANG>.<MODEL_SLUG>.json` with pre-existing translations included.
-- Fewer batches are available than the prepare step generated, or a batch keeps failing after several retry attempts.
-- Partial mechanical validation reveals a systemic problem that cannot be attributed to a single bad batch or clear translation mistake.
-- Validation sub-agents identify widespread style-guide violations for a language that require human terminology decisions.
+- no final locale can be discovered;
+- a locale style guide is missing;
+- the translation CLI behavior has diverged from this prompt;
+- preparation is not missing-only;
+- a process attempts to write outside the approved report workspace or model artifact;
+- a process attempts to write or merge into a final locale file;
+- a model artifact would include pre-existing keys;
+- generated batches are unavailable or repeatedly fail;
+- mechanical validation finds a systemic problem;
+- reviewers find widespread violations that require human terminology decisions.
 
-Routine retries (single failed result file, transient rate limit, one bad translation batch) are NOT anomaly conditions — handle them and keep going.
+Handle routine single-batch retries and transient failures without pausing.
 
-Begin Phase 0 now.
+Begin Step 0 now.
