@@ -1760,7 +1760,17 @@ class ExtractTests(unittest.TestCase):
                 "fn dirty_message_for(buffer_path: Option<ProjectPath>, path_style: PathStyle) -> String {",
                 '    const CONFLICT_MESSAGE: &str = "This file has changed on disk since you started editing it. Do you want to overwrite it?";',
                 '    const DELETED_MESSAGE: &str = "This file has been deleted on disk since you started editing it. Do you want to recreate it?";',
-                '    format!("{path} contains unsaved edits. Do you want to save it?")',
+                "    match path {",
+                "        Some(path) => format!(",
+                '            "{} contains unsaved edits. Do you want to save it?",',
+                "            MarkdownInlineCode(path.as_str())",
+                "        ),",
+                '        None => "This buffer contains unsaved edits. Do you want to save it?".to_string(),',
+                "    }",
+                "}",
+                "#[cfg(test)]",
+                "fn test_dirty_message_for_without_path() {",
+                '    assert_eq!(dirty_message_for(None), "This buffer contains unsaved edits. Do you want to save it?");',
                 "}",
             ]
         )
@@ -1776,13 +1786,61 @@ class ExtractTests(unittest.TestCase):
             {
                 "This file has changed on disk since you started editing it. Do you want to overwrite it?",
                 "This file has been deleted on disk since you started editing it. Do you want to recreate it?",
-                "{path} contains unsaved edits. Do you want to save it?",
+                "{} contains unsaved edits. Do you want to save it?",
+                "This buffer contains unsaved edits. Do you want to save it?",
             },
         )
         self.assertEqual(
-            by_source["{path} contains unsaved edits. Do you want to save it?"].kind,
+            by_source["{} contains unsaved edits. Do you want to save it?"].kind,
             "prompt_message",
         )
+        self.assertEqual(
+            by_source["This buffer contains unsaved edits. Do you want to save it?"].call,
+            "dirty_message_for",
+        )
+        self.assertEqual(
+            sum(
+                occurrence.source
+                == "This buffer contains unsaved edits. Do you want to save it?"
+                for occurrence in occurrences
+            ),
+            1,
+        )
+
+    def test_extracts_git_diff_multibuffer_empty_states(self) -> None:
+        cases = {
+            "crates/git_ui/src/branch_diff.rs": "No changes",
+            "crates/git_ui/src/project_diff.rs": "No uncommitted changes",
+            "crates/git_ui/src/staged_diff.rs": "No staged changes",
+            "crates/git_ui/src/unstaged_diff.rs": "No unstaged changes",
+        }
+
+        for relative_path, label in cases.items():
+            with self.subTest(relative_path=relative_path):
+                source = "\n".join(
+                    [
+                        "fn build_diff() {",
+                        "    DiffMultibuffer::new(",
+                        '        "internal diff id",',
+                        "        Capability::ReadWrite,",
+                        f'        "{label}",',
+                        "        configure_editor,",
+                        "    );",
+                        "}",
+                    ]
+                )
+
+                occurrences = extract_ui_strings_from_source(source, relative_path)
+
+                self.assertEqual([occurrence.source for occurrence in occurrences], [label])
+                self.assertEqual(occurrences[0].kind, "empty_state")
+                self.assertEqual(occurrences[0].call, "DiffMultibuffer::new")
+
+        wrong_path = extract_ui_strings_from_source(
+            'DiffMultibuffer::new(diff, capability, "No changes", configure);',
+            "crates/example/src/lib.rs",
+        )
+        self.assertEqual(wrong_path, [])
 
     def test_extracts_project_empty_state_panel_labels(self) -> None:
         source = "\n".join(
@@ -4149,6 +4207,40 @@ class ExtractTests(unittest.TestCase):
         )
         self.assertEqual(by_source["Configure ChatGPT"].kind, "inline_title")
 
+    def test_extracts_cloud_provider_inline_subscription_titles(self) -> None:
+        source = "\n".join(
+            [
+                "let title = match user_store.plan() {",
+                '    Some(Plan::ZedPro) => Some("Subscribed to Pro".into()),',
+                '    Some(Plan::ZedProTrial) => Some("Subscribed to Pro Trial".into()),',
+                '    Some(Plan::ZedStudent) => Some("Subscribed to Student".into()),',
+                '    Some(Plan::ZedBusiness) => Some("Subscribed to Business".into()),',
+                '    Some(Plan::ZedVip) => Some("Subscribed to VIP".into()),',
+                "    Some(Plan::ZedFree) | None => None,",
+                "};",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/language_models/src/provider/cloud.rs",
+        )
+
+        by_source = {occurrence.source: occurrence for occurrence in occurrences}
+        self.assertEqual(
+            set(by_source),
+            {
+                "Subscribed to Pro",
+                "Subscribed to Pro Trial",
+                "Subscribed to Student",
+                "Subscribed to Business",
+                "Subscribed to VIP",
+            },
+        )
+        for occurrence in by_source.values():
+            self.assertEqual(occurrence.call, "InlineProviderSettings.title")
+            self.assertEqual(occurrence.kind, "label")
+
     def test_extracts_sandbox_status_tooltip_sections_and_rows(self) -> None:
         source = "\n".join(
             [
@@ -5439,6 +5531,464 @@ class ExtractTests(unittest.TestCase):
         self.assertEqual(by_source["Untitled"].call, "outline_external_file_name")
         self.assertEqual(by_source["Untitled"].kind, "outline_external_file_label")
         self.assertEqual(by_source["Unknown buffer"].kind, "outline_external_file_label")
+
+    def test_extracts_agent_feedback_and_model_not_available_text(self) -> None:
+        completion_source = "\n".join(
+            [
+                "impl PromptLocalCommand {",
+                "    fn keyword(&self) -> &'static str {",
+                '        match self { Self::ThumbsUp => "helpful", Self::ThumbsDown => "not-helpful" }',
+                "    }",
+                "    fn label(&self) -> &'static str {",
+                '        match self { Self::ThumbsUp => "Positive Feedback", Self::ThumbsDown => "Negative Feedback" }',
+                "    }",
+                "    fn description(&self) -> &'static str {",
+                "        match self {",
+                '            Self::ThumbsUp => "Rate this response as helpful. Sends the current conversation to the Zed team.",',
+                '            Self::ThumbsDown => "Rate this response as not helpful. Sends the current conversation to the Zed team.",',
+                "        }",
+                "    }",
+                "}",
+            ]
+        )
+        completion_occurrences = extract_ui_strings_from_source(
+            completion_source,
+            "crates/agent_ui/src/completion_provider.rs",
+        )
+        completion_expected = {
+            "Positive Feedback": (
+                "PromptLocalCommand.label",
+                "prompt_local_command_label",
+            ),
+            "Negative Feedback": (
+                "PromptLocalCommand.label",
+                "prompt_local_command_label",
+            ),
+            "Rate this response as helpful. Sends the current conversation to the Zed team.": (
+                "PromptLocalCommand.description",
+                "prompt_local_command_description",
+            ),
+            "Rate this response as not helpful. Sends the current conversation to the Zed team.": (
+                "PromptLocalCommand.description",
+                "prompt_local_command_description",
+            ),
+        }
+        self.assertEqual(
+            {
+                occurrence.source: (occurrence.call, occurrence.kind)
+                for occurrence in completion_occurrences
+            },
+            completion_expected,
+        )
+        self.assertNotIn(
+            "helpful",
+            {occurrence.source for occurrence in completion_occurrences},
+        )
+        self.assertNotIn(
+            "not-helpful",
+            {occurrence.source for occurrence in completion_occurrences},
+        )
+
+        model_source = "\n".join(
+            [
+                "fn render_model_not_available_error() {",
+                "    let values = (",
+                '        format!("Failed to authenticate with {} provider", provider.name()),',
+                '        "Open the settings to configure the selected provider",',
+                '        format!("Model {} was not found", model),',
+                '        "You may need to reconfigure authentication for this provider",',
+                '        format!("Provider {} was not found", provider),',
+                '        "Open the settings to configure providers",',
+                '        "No model selected",',
+                '        "Choose a different model or configure other providers to get started",',
+                '        "No model selected",',
+                '        "Configure a provider to get started",',
+                '        "configure-llm-provider",',
+                "    );",
+                "}",
+            ]
+        )
+        model_occurrences = extract_ui_strings_from_source(
+            model_source,
+            "crates/agent_ui/src/conversation_view/thread_view.rs",
+        )
+        model_by_source = {}
+        for occurrence in model_occurrences:
+            model_by_source.setdefault(occurrence.source, []).append(occurrence)
+
+        expected_titles = {
+            "Failed to authenticate with {} provider",
+            "Model {} was not found",
+            "Provider {} was not found",
+            "No model selected",
+        }
+        expected_descriptions = {
+            "Open the settings to configure the selected provider",
+            "You may need to reconfigure authentication for this provider",
+            "Open the settings to configure providers",
+            "Choose a different model or configure other providers to get started",
+            "Configure a provider to get started",
+        }
+        self.assertEqual(set(model_by_source), expected_titles | expected_descriptions)
+        self.assertEqual(len(model_occurrences), 10)
+        self.assertEqual(len(model_by_source["No model selected"]), 2)
+        for source in expected_titles:
+            for occurrence in model_by_source[source]:
+                self.assertEqual(occurrence.call, "render_model_not_available_error")
+                self.assertEqual(occurrence.kind, "callout_title")
+        for source in expected_descriptions:
+            self.assertEqual(
+                model_by_source[source][0].call,
+                "render_model_not_available_error",
+            )
+            self.assertEqual(model_by_source[source][0].kind, "callout_description")
+
+    def test_extracts_editor_gutter_and_update_tooltips(self) -> None:
+        editor_source = "\n".join(
+            [
+                "impl GutterButtonIntent {",
+                "    fn as_str(&self) -> &'static str {",
+                "        match self {",
+                '            Self::SetBookmark => "Set Bookmark",',
+                '            Self::SetBreakpoint => "Set Breakpoint",',
+                "        }",
+                "    }",
+                "}",
+                "impl GutterButtonTooltip {",
+                "    fn meta_text(&self, intent: GutterButtonIntent) -> String {",
+                '        const RIGHT_CLICK_HINT: &str = "right-click for more options";',
+                "        let other = match intent {",
+                '            GutterButtonIntent::SetBookmark => "breakpoint",',
+                '            GutterButtonIntent::SetBreakpoint => "bookmark",',
+                "        };",
+                '        let unrelated = "bookmark";',
+                '        format!("{modifier_as_text}-click to add a {other}\\n{RIGHT_CLICK_HINT}")',
+                "    }",
+                "}",
+            ]
+        )
+        editor_occurrences = extract_ui_strings_from_source(
+            editor_source,
+            "crates/editor/src/editor.rs",
+        )
+        editor_expected = {
+            "Set Bookmark": ("GutterButtonIntent.as_str", "tooltip"),
+            "Set Breakpoint": ("GutterButtonIntent.as_str", "tooltip"),
+            "right-click for more options": (
+                "GutterButtonTooltip.meta_text",
+                "tooltip_meta",
+            ),
+            "breakpoint": ("GutterButtonTooltip.meta_text", "tooltip_meta"),
+            "bookmark": ("GutterButtonTooltip.meta_text", "tooltip_meta"),
+            "{modifier_as_text}-click to add a {other}\n{RIGHT_CLICK_HINT}": (
+                "GutterButtonTooltip.meta_text",
+                "tooltip_meta",
+            ),
+        }
+        self.assertEqual(len(editor_occurrences), 6)
+        self.assertEqual(
+            {
+                occurrence.source: (occurrence.call, occurrence.kind)
+                for occurrence in editor_occurrences
+            },
+            editor_expected,
+        )
+
+        update_source = "\n".join(
+            [
+                "fn version_tooltip_message(version: &Version) -> String {",
+                '    format!("Update to Version: {version}")',
+                "}",
+            ]
+        )
+        update_occurrences = extract_ui_strings_from_source(
+            update_source,
+            "crates/title_bar/src/update_version.rs",
+        )
+        self.assertEqual(
+            [
+                (occurrence.source, occurrence.call, occurrence.kind)
+                for occurrence in update_occurrences
+            ],
+            [
+                (
+                    "Update to Version: {version}",
+                    "UpdateVersion.version_tooltip_message",
+                    "tooltip",
+                )
+            ],
+        )
+        self.assertEqual(
+            extract_ui_strings_from_source(
+                update_source,
+                "crates/example/src/update_version.rs",
+            ),
+            [],
+        )
+
+    def test_extracts_current_version_status_and_error_text(self) -> None:
+        context_server_source = "\n".join(
+            [
+                "fn resolve_auth_required() {",
+                '    log::warn!("{id} received 401 with a static Authorization header configured");',
+                "    let static_error = ContextServerState::Error {",
+                '        error: "Server returned 401 Unauthorized. Check your configured Authorization header."',
+                "            .into(),",
+                "    };",
+                '    log::error!("{id} got OAuth 401 on a non-HTTP transport");',
+                "    let transport_error = ContextServerState::Error {",
+                '        error: "Server returned 401 Unauthorized on a non-HTTP transport".into(),',
+                "    };",
+                '    let internal_copy = "Server returned 401 Unauthorized. Check your configured Authorization header.";',
+                "}",
+            ]
+        )
+        context_server_occurrences = extract_ui_strings_from_source(
+            context_server_source,
+            "crates/project/src/context_server_store.rs",
+        )
+        self.assertEqual(
+            [
+                (occurrence.source, occurrence.call, occurrence.kind)
+                for occurrence in context_server_occurrences
+            ],
+            [
+                (
+                    "Server returned 401 Unauthorized. Check your configured Authorization header.",
+                    "resolve_auth_required",
+                    "context_server_error",
+                ),
+                (
+                    "Server returned 401 Unauthorized on a non-HTTP transport",
+                    "resolve_auth_required",
+                    "context_server_error",
+                )
+            ],
+        )
+
+        bedrock_source = "\n".join(
+            [
+                "fn map_mantle_error() {",
+                "    let permission = format!(",
+                '        "Bedrock Mantle denied this request for {}. Mantle-only models require IAM \\',
+                '         permissions for the `bedrock-mantle` endpoint (for example via the \\',
+                '         `AmazonBedrockMantleInferenceAccess` managed policy) in addition to whatever \\',
+                '         permissions your existing Bedrock credentials already have.",',
+                "        model.display_name(),",
+                "    );",
+                "}",
+                "fn stream_completion() {",
+                "    let region = anyhow!(",
+                '        "{display_name} is not available in {region} because Bedrock Mantle isn\'t offered \\',
+                '         there. Try switching to one of the following regions: {supported}."',
+                "    );",
+                '    let internal = "bedrock-mantle";',
+                "}",
+            ]
+        )
+        bedrock_occurrences = extract_ui_strings_from_source(
+            bedrock_source,
+            "crates/language_models/src/provider/bedrock.rs",
+        )
+        expected_bedrock_sources = {
+            (
+                "Bedrock Mantle denied this request for {}. Mantle-only models require IAM "
+                "permissions for the `bedrock-mantle` endpoint (for example via the "
+                "`AmazonBedrockMantleInferenceAccess` managed policy) in addition to whatever "
+                "permissions your existing Bedrock credentials already have."
+            ),
+            (
+                "{display_name} is not available in {region} because Bedrock Mantle isn't offered "
+                "there. Try switching to one of the following regions: {supported}."
+            ),
+        }
+        self.assertEqual(
+            {occurrence.source for occurrence in bedrock_occurrences},
+            expected_bedrock_sources,
+        )
+        self.assertEqual(len(bedrock_occurrences), 2)
+        for occurrence in bedrock_occurrences:
+            self.assertEqual(occurrence.call, "BedrockMantle.user_error")
+            self.assertEqual(occurrence.kind, "provider_model_error")
+
+        keymap_source = "\n".join(
+            [
+                "operation",
+                '    .map_err(|err| err.context("Could not save updated keybinding"))?;',
+                'telemetry::event!("Keybinding Updated");',
+            ]
+        )
+        keymap_occurrences = extract_ui_strings_from_source(
+            keymap_source,
+            "crates/keymap_editor/src/keymap_editor.rs",
+        )
+        self.assertEqual(
+            [
+                (occurrence.source, occurrence.call, occurrence.kind)
+                for occurrence in keymap_occurrences
+            ],
+            [
+                (
+                    "Could not save updated keybinding",
+                    "InputError.context",
+                    "input_error",
+                )
+            ],
+        )
+
+    def test_extracts_current_version_existing_key_occurrences(self) -> None:
+        completion_source = "\n".join(
+            [
+                "let group = CompletionGroup {",
+                '    key: "local-commands".into(),',
+                '    label: Some("Actions".into()),',
+                "};",
+                'let internal = "Actions";',
+            ]
+        )
+        completion_occurrences = extract_ui_strings_from_source(
+            completion_source,
+            "crates/agent_ui/src/completion_provider.rs",
+        )
+        self.assertEqual(
+            [
+                (occurrence.source, occurrence.call, occurrence.kind)
+                for occurrence in completion_occurrences
+            ],
+            [("Actions", "CompletionGroup.label", "completion_group_label")],
+        )
+
+        toast_source = "\n".join(
+            [
+                'self.show_local_command_toast("Thanks for your feedback!", cx);',
+                'Tooltip::text("Thanks for your feedback!");',
+            ]
+        )
+        toast_occurrences = extract_ui_strings_from_source(
+            toast_source,
+            "crates/agent_ui/src/conversation_view/thread_view.rs",
+        )
+        self.assertEqual(
+            [
+                (occurrence.source, occurrence.call, occurrence.kind)
+                for occurrence in toast_occurrences
+            ],
+            [
+                (
+                    "Thanks for your feedback!",
+                    "show_local_command_toast",
+                    "status_toast",
+                ),
+                ("Thanks for your feedback!", "Tooltip::text", "tooltip"),
+            ],
+        )
+
+        copilot_source = "\n".join(
+            [
+                "titlebar: Some(gpui::TitlebarOptions {",
+                '    title: Some("Use GitHub Copilot in Zed".into()),',
+                "}),",
+                'Headline::new("Use GitHub Copilot in Zed");',
+            ]
+        )
+        copilot_occurrences = extract_ui_strings_from_source(
+            copilot_source,
+            "crates/copilot_ui/src/sign_in.rs",
+        )
+        self.assertEqual(
+            [
+                (occurrence.source, occurrence.call, occurrence.kind)
+                for occurrence in copilot_occurrences
+            ],
+            [
+                ("Use GitHub Copilot in Zed", "Headline::new", "headline"),
+                (
+                    "Use GitHub Copilot in Zed",
+                    "TitlebarOptions.title",
+                    "window_title",
+                ),
+            ],
+        )
+
+        branch_diff_source = "\n".join(
+            [
+                "fn deploy_branch_diff() {",
+                '    telemetry::event!("Git Branch Diff Opened");',
+                "    window.spawn(cx, async move |_cx| {",
+                '        let result: Result<()> = Err(anyhow!("No active repository"));',
+                "        result",
+                "    }).detach_and_notify_err(workspace, window, cx);",
+                "    window.spawn(cx, async move |_cx| {",
+                '        task.context("Could not determine default branch")?;',
+                "        anyhow::Ok(())",
+                "    }).detach_and_notify_err(workspace, window, cx);",
+                "}",
+                "fn compare_with_branch() {",
+                "    window.spawn(cx, async move |_cx| {",
+                '        let result: Result<()> = Err(anyhow!("No active repository"));',
+                "        result",
+                "    }).detach_and_notify_err(workspace, window, cx);",
+                "}",
+                "fn internal_error() {",
+                '    let outside_sink = anyhow!("No active repository");',
+                "}",
+                "#[cfg(test)]",
+                "fn new_with_default_branch() {",
+                '    let result: Result<()> = Err(anyhow!("No active repository"));',
+                '    task.context("Could not determine default branch")?;',
+                "}",
+            ]
+        )
+        branch_diff_occurrences = extract_ui_strings_from_source(
+            branch_diff_source,
+            "crates/git_ui/src/branch_diff.rs",
+        )
+        self.assertEqual(
+            [
+                (occurrence.source, occurrence.call, occurrence.kind)
+                for occurrence in branch_diff_occurrences
+            ],
+            [
+                ("No active repository", "git_user_error", "notification_error"),
+                (
+                    "Could not determine default branch",
+                    "git_user_error",
+                    "notification_error",
+                ),
+                ("No active repository", "git_user_error", "notification_error"),
+            ],
+        )
+
+        for relative_path, label in {
+            "crates/git_ui/src/staged_diff.rs": "Staged Changes",
+            "crates/git_ui/src/unstaged_diff.rs": "Unstaged Changes",
+        }.items():
+            with self.subTest(relative_path=relative_path):
+                tab_source = "\n".join(
+                    [
+                        "fn tab_tooltip_text(&self) -> Option<SharedString> {",
+                        f'    Some("{label}".into())',
+                        "}",
+                        "fn tab_content_text(&self) -> SharedString {",
+                        f'    "{label}".into()',
+                        "}",
+                        "#[cfg(test)]",
+                        "fn test_tab_text() {",
+                        f'    assert_eq!(tab_content_text(), "{label}");',
+                        "}",
+                    ]
+                )
+                tab_occurrences = extract_ui_strings_from_source(tab_source, relative_path)
+                self.assertEqual(
+                    [
+                        (occurrence.source, occurrence.call, occurrence.kind)
+                        for occurrence in tab_occurrences
+                    ],
+                    [
+                        (label, "tab_tooltip_text", "tab_tooltip"),
+                        (label, "tab_content_text", "tab_title"),
+                    ],
+                )
 
     def test_ignores_format_distance_composition_strings(self) -> None:
         source = "\n".join(

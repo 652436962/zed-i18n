@@ -171,29 +171,31 @@ impl AutoUpdater {
         installed_version: Version,
         fetched_version: String,
         status: AutoUpdateStatus,
-    ) -> Result<Option<VersionCheckType>> {
-        let parsed_fetched_version = fetched_version.parse::<Version>();
-
-        if let AutoUpdateStatus::Updated { version, .. } = status {
-        }
+    ) -> Result<Option<Version>> {
+        let fetched_version = fetched_version.parse::<Version>()?;
 
         match release_channel {
-            _ => Self::check_if_fetched_version_is_newer_non_nightly(
-                installed_version,
-                parsed_fetched_version?,
-            ),
+            _ => {
+                let current_version = if let AutoUpdateStatus::Updated { version } = status {
+                    version
+                } else {
+                    installed_version
+                };
+                Ok(Self::check_if_fetched_version_is_newer_non_nightly(
+                    current_version,
+                    fetched_version,
+                ))
+            }
         }
     }
 
     fn check_if_fetched_version_is_newer_non_nightly(
         mut installed_version: Version,
         fetched_version: Version,
-    ) -> Result<Option<VersionCheckType>> {
+    ) -> Option<Version> {
         installed_version.pre = semver::Prerelease::EMPTY;
         installed_version.build = semver::BuildMetadata::EMPTY;
-        let should_download = fetched_version > installed_version;
-        let newer_version = should_download.then(|| VersionCheckType::Semantic(fetched_version));
-        Ok(newer_version)
+        (fetched_version > installed_version).then_some(fetched_version)
     }
 }
 """,
@@ -280,6 +282,41 @@ fn app_menus() -> Vec<Menu> {
         self.assertIn("ZED_I18N_UPDATE_MANIFEST_URL", auto_update)
         self.assertIn("get_i18n_release_asset", auto_update)
         self.assertIn('"zed-remote-server" => return Ok(None)', auto_update)
+        self.assertIn(
+            """if option_env!("ZED_I18N_UPDATE_MANIFEST_URL").is_some() {
+            let current_version = if let AutoUpdateStatus::Updated { version } = status {
+                version
+            } else {
+                installed_version
+            };
+            return Ok(Self::check_if_i18n_fetched_version_is_newer(
+                current_version,
+                fetched_version,
+            ));
+        }""",
+            auto_update,
+        )
+        self.assertIn(
+            """fn check_if_i18n_fetched_version_is_newer(
+        mut installed_version: Version,
+        fetched_version: Version,
+    ) -> Option<Version> {""",
+            auto_update,
+        )
+        self.assertIn(
+            """let installed_revision = installed_version
+            .build
+            .as_str()
+            .strip_prefix("i18n.")
+            .and_then(|revision| revision.parse::<u64>().ok())
+            .or_else(|| {
+                option_env!("ZED_I18N_REVISION")
+                    .and_then(|revision| revision.parse::<u64>().ok())
+            })
+            .unwrap_or_default();""",
+            auto_update,
+        )
+        self.assertNotIn("VersionCheckType", auto_update)
 
     def test_adds_i18n_repository_menu_after_localized_zed_repository(self) -> None:
         config = load_distribution_config(

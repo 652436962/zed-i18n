@@ -209,6 +209,35 @@ AGENT_THREAD_SANDBOX_NOTICE_SOURCES = {
     "Unsandboxed execution is allowed for the rest of this thread.",
 }
 
+PROMPT_LOCAL_COMMAND_LABEL_SOURCES = {
+    "Positive Feedback",
+    "Negative Feedback",
+}
+
+PROMPT_LOCAL_COMMAND_DESCRIPTION_SOURCES = {
+    "Rate this response as helpful. Sends the current conversation to the Zed team.",
+    "Rate this response as not helpful. Sends the current conversation to the Zed team.",
+}
+
+COMPLETION_GROUP_LABEL_SOURCES = {
+    "Actions",
+}
+
+AGENT_THREAD_MODEL_NOT_AVAILABLE_TITLE_SOURCES = {
+    "Failed to authenticate with {} provider",
+    "Model {} was not found",
+    "Provider {} was not found",
+    "No model selected",
+}
+
+AGENT_THREAD_MODEL_NOT_AVAILABLE_DESCRIPTION_SOURCES = {
+    "Open the settings to configure the selected provider",
+    "You may need to reconfigure authentication for this provider",
+    "Open the settings to configure providers",
+    "Choose a different model or configure other providers to get started",
+    "Configure a provider to get started",
+}
+
 AGENT_SKILL_SHARE_LINK_ERROR_SOURCES = {
     "skill share link is not a valid URL",
     "not a skill share link",
@@ -442,6 +471,28 @@ LANGUAGE_MODEL_PROVIDER_INLINE_DESCRIPTION_SOURCES = {
     "Subscribe for access to Zed's hosted models.",
 }
 
+CONTEXT_SERVER_401_ERROR_SOURCES = {
+    "Server returned 401 Unauthorized. Check your configured Authorization header.",
+    "Server returned 401 Unauthorized on a non-HTTP transport",
+}
+
+COPILOT_WINDOW_TITLE_SOURCES = {
+    "Use GitHub Copilot in Zed",
+}
+
+BEDROCK_MANTLE_USER_ERROR_SOURCES = {
+    (
+        "Bedrock Mantle denied this request for {}. Mantle-only models require IAM "
+        "permissions for the `bedrock-mantle` endpoint (for example via the "
+        "`AmazonBedrockMantleInferenceAccess` managed policy) in addition to whatever "
+        "permissions your existing Bedrock credentials already have."
+    ),
+    (
+        "{display_name} is not available in {region} because Bedrock Mantle isn't offered "
+        "there. Try switching to one of the following regions: {supported}."
+    ),
+}
+
 PICKER_DELEGATE_PLACEHOLDER_SOURCES = {
     "Select the process you want to attach the debugger to",
     "Select a running process to attach to...",
@@ -569,6 +620,13 @@ def extract_ui_strings_from_source(source: str, relative_path: str) -> list[Stri
 
         call = _node_text(source_bytes, function_node)
         arguments = list(arguments_node.named_children)
+        occurrences.extend(
+            _extract_git_branch_diff_notification_errors_for_call(
+                source_bytes,
+                function_node,
+                relative_path,
+            )
+        )
         rules = list(_rules_for_call(call))
         rules.extend(_contextual_rules_for_call(call, relative_path))
         for argument_index, kind, call_name in rules:
@@ -813,6 +871,11 @@ def _contextual_rules_for_call(call: str, relative_path: str) -> tuple[tuple[int
         return ((1, "toast", "show_rules_to_skills_migration_toast"),)
     if _is_git_graph_path(relative_path) and canonical.endswith(".header"):
         return ((0, "context_menu_header", "header"),)
+    if (
+        _is_git_diff_multibuffer_caller_path(relative_path)
+        and canonical == "DiffMultibuffer::new"
+    ):
+        return ((2, "empty_state", "DiffMultibuffer::new"),)
     if _is_zed_root_path(relative_path) and canonical == "open_bundled_file":
         return ((2, "bundled_file_title", "open_bundled_file"),)
     if _is_add_llm_provider_modal_path(relative_path) and canonical == "single_line_input":
@@ -853,6 +916,8 @@ def _contextual_rules_for_call(call: str, relative_path: str) -> tuple[tuple[int
     if _is_thread_search_bar_path(relative_path) and canonical == "nav_button":
         return ((3, "tooltip", "nav_button"),)
     if _is_agent_thread_view_path(relative_path):
+        if _is_method_call(canonical, "show_local_command_toast"):
+            return ((0, "status_toast", "show_local_command_toast"),)
         if canonical == "render_sandbox_policy_section":
             return ((0, "sandbox_status_section", "render_sandbox_policy_section"),)
         if canonical == "sandbox_status_group":
@@ -884,6 +949,41 @@ def _contextual_rules_for_call(call: str, relative_path: str) -> tuple[tuple[int
     if _is_git_commit_view_path(relative_path) and canonical.endswith("Self::stash_action"):
         return ((1, "prompt_answer", "stash_action"),)
     return ()
+
+
+def _extract_git_branch_diff_notification_errors_for_call(
+    source_bytes: bytes,
+    function_node,
+    relative_path: str,
+) -> list[StringOccurrence]:
+    if not _is_git_branch_diff_path(relative_path):
+        return []
+
+    call = _node_text(source_bytes, function_node)
+    if not _is_method_call(call, "detach_and_notify_err"):
+        return []
+
+    receiver_node = function_node.child_by_field_name("value")
+    if receiver_node is None:
+        return []
+
+    occurrences: list[StringOccurrence] = []
+    for literal_node in _string_literal_nodes(receiver_node):
+        source = parse_rust_string_literal(_node_text(source_bytes, literal_node))
+        if source not in GIT_NOTIFY_ERROR_SOURCES:
+            continue
+        occurrences.append(
+            StringOccurrence(
+                source=source,
+                file=relative_path,
+                line=literal_node.start_point[0] + 1,
+                call="git_user_error",
+                kind="notification_error",
+                start_byte=literal_node.start_byte,
+                end_byte=literal_node.end_byte,
+            )
+        )
+    return occurrences
 
 
 def _canonical_call(call: str) -> str:
@@ -930,6 +1030,31 @@ def _extract_struct_field_occurrence(source_bytes: bytes, node, relative_path: s
         return None
 
     rule = STRUCT_FIELD_RULES.get((struct_name, field_name))
+    allowed_sources: set[str] | None = None
+    if (
+        rule is None
+        and _is_context_server_store_path(relative_path)
+        and struct_name == "ContextServerState::Error"
+        and field_name == "error"
+    ):
+        rule = ("context_server_error", "resolve_auth_required")
+        allowed_sources = CONTEXT_SERVER_401_ERROR_SOURCES
+    if (
+        rule is None
+        and _is_agent_completion_provider_path(relative_path)
+        and struct_name == "CompletionGroup"
+        and field_name == "label"
+    ):
+        rule = ("completion_group_label", "CompletionGroup.label")
+        allowed_sources = COMPLETION_GROUP_LABEL_SOURCES
+    if (
+        rule is None
+        and _is_copilot_sign_in_path(relative_path)
+        and struct_name == "gpui::TitlebarOptions"
+        and field_name == "title"
+    ):
+        rule = ("window_title", "TitlebarOptions.title")
+        allowed_sources = COPILOT_WINDOW_TITLE_SOURCES
     if rule is None:
         return None
 
@@ -942,9 +1067,12 @@ def _extract_struct_field_occurrence(source_bytes: bytes, node, relative_path: s
         return None
 
     literal = _node_text(source_bytes, literal_node)
+    source = parse_rust_string_literal(literal)
+    if allowed_sources is not None and source not in allowed_sources:
+        return None
     kind, call_name = rule
     return StringOccurrence(
-        source=parse_rust_string_literal(literal),
+        source=source,
         file=relative_path,
         line=literal_node.start_point[0] + 1,
         call=call_name,
@@ -1003,6 +1131,12 @@ def _extract_ui_return_method_occurrences(source_bytes: bytes, node, relative_pa
             rule = ("tooltip", "configure_commit_button")
     if rule is None and _is_git_multi_diff_view_path(relative_path) and method_name == "title":
         rule = ("git_diff_title", "MultiDiffView.title")
+    if (
+        rule is None
+        and _is_git_staged_or_unstaged_diff_path(relative_path)
+        and method_name == "tab_tooltip_text"
+    ):
+        rule = ("tab_tooltip", "tab_tooltip_text")
     if rule is None and _is_inline_prompt_editor_path(relative_path) and method_name in {
         "tooltip_interrupt",
         "tooltip_restart",
@@ -1702,6 +1836,21 @@ def _allowed_literal_rules_for_path(
     relative_path: str,
 ) -> list[tuple[set[str], str, str]]:
     rules: list[tuple[set[str], str, str]] = []
+    if _is_agent_completion_provider_path(relative_path):
+        rules.append(
+            (
+                PROMPT_LOCAL_COMMAND_LABEL_SOURCES,
+                "prompt_local_command_label",
+                "PromptLocalCommand.label",
+            )
+        )
+        rules.append(
+            (
+                PROMPT_LOCAL_COMMAND_DESCRIPTION_SOURCES,
+                "prompt_local_command_description",
+                "PromptLocalCommand.description",
+            )
+        )
     if _is_terminal_tool_path(relative_path):
         rules.append(
             (
@@ -1738,6 +1887,20 @@ def _allowed_literal_rules_for_path(
                 AGENT_THREAD_SANDBOX_NOTICE_SOURCES,
                 "sandbox_status_message",
                 "AgentThread.sandbox_notice",
+            )
+        )
+        rules.append(
+            (
+                AGENT_THREAD_MODEL_NOT_AVAILABLE_TITLE_SOURCES,
+                "callout_title",
+                "render_model_not_available_error",
+            )
+        )
+        rules.append(
+            (
+                AGENT_THREAD_MODEL_NOT_AVAILABLE_DESCRIPTION_SOURCES,
+                "callout_description",
+                "render_model_not_available_error",
             )
         )
     if _is_agent_skills_path(relative_path):
@@ -1831,6 +1994,14 @@ def _allowed_literal_rules_for_path(
                 LANGUAGE_MODEL_PROVIDER_INLINE_DESCRIPTION_SOURCES,
                 "inline_description",
                 "LanguageModelProvider.inline_description",
+            )
+        )
+    if _is_bedrock_provider_path(relative_path):
+        rules.append(
+            (
+                BEDROCK_MANTLE_USER_ERROR_SOURCES,
+                "provider_model_error",
+                "BedrockMantle.user_error",
             )
         )
     if _is_search_path(relative_path):
@@ -2583,6 +2754,8 @@ def _line_patterns_for_path(
         patterns.extend(REPL_NOTEBOOK_UI_LINE_PATTERNS)
     if _is_title_bar_path(relative_path):
         patterns.extend(TITLE_BAR_LINE_PATTERNS)
+    if _is_title_bar_update_version_path(relative_path):
+        patterns.extend(TITLE_BAR_UPDATE_VERSION_LINE_PATTERNS)
     if _is_copilot_sign_in_path(relative_path):
         patterns.extend(COPILOT_SIGN_IN_LINE_PATTERNS)
     if _is_workspace_welcome_path(relative_path):
@@ -2619,10 +2792,14 @@ def _line_patterns_for_path(
         patterns.extend(LSP_BUTTON_LINE_PATTERNS)
     if _is_inline_prompt_editor_path(relative_path):
         patterns.extend(INLINE_PROMPT_EDITOR_LINE_PATTERNS)
+    if _is_editor_path(relative_path):
+        patterns.extend(EDITOR_GUTTER_TOOLTIP_LINE_PATTERNS)
     if _is_keymap_editor_path(relative_path):
         patterns.extend(KEYMAP_EDITOR_LINE_PATTERNS)
     if _is_rust_language_path(relative_path):
         patterns.extend(RUST_LANGUAGE_LINE_PATTERNS)
+    if _is_cloud_provider_path(relative_path):
+        patterns.extend(CLOUD_PROVIDER_LINE_PATTERNS)
     if _is_language_model_provider_path(relative_path):
         patterns.extend(LANGUAGE_MODEL_PROVIDER_LINE_PATTERNS)
     if _is_language_model_registry_path(relative_path):
@@ -2754,6 +2931,10 @@ def _is_agent_thread_view_path(relative_path: str) -> bool:
     return relative_path == "crates/agent_ui/src/conversation_view/thread_view.rs"
 
 
+def _is_agent_completion_provider_path(relative_path: str) -> bool:
+    return relative_path == "crates/agent_ui/src/completion_provider.rs"
+
+
 def _is_agent_elicitation_path(relative_path: str) -> bool:
     return relative_path == "crates/agent_ui/src/conversation_view/elicitation.rs"
 
@@ -2822,6 +3003,10 @@ def _is_time_format_path(relative_path: str) -> bool:
 
 def _is_title_bar_path(relative_path: str) -> bool:
     return relative_path == "crates/title_bar/src/title_bar.rs"
+
+
+def _is_title_bar_update_version_path(relative_path: str) -> bool:
+    return relative_path == "crates/title_bar/src/update_version.rs"
 
 
 def _is_title_bar_collab_path(relative_path: str) -> bool:
@@ -2981,6 +3166,10 @@ def _is_git_commit_view_path(relative_path: str) -> bool:
     return relative_path == "crates/git_ui/src/commit_view.rs"
 
 
+def _is_git_branch_diff_path(relative_path: str) -> bool:
+    return relative_path == "crates/git_ui/src/branch_diff.rs"
+
+
 def _is_git_graph_path(relative_path: str) -> bool:
     return relative_path == "crates/git_ui/src/git_graph.rs"
 
@@ -3026,6 +3215,22 @@ def _is_git_text_diff_view_path(relative_path: str) -> bool:
     return relative_path == "crates/git_ui/src/text_diff_view.rs"
 
 
+def _is_git_diff_multibuffer_caller_path(relative_path: str) -> bool:
+    return relative_path in {
+        "crates/git_ui/src/branch_diff.rs",
+        "crates/git_ui/src/project_diff.rs",
+        "crates/git_ui/src/staged_diff.rs",
+        "crates/git_ui/src/unstaged_diff.rs",
+    }
+
+
+def _is_git_staged_or_unstaged_diff_path(relative_path: str) -> bool:
+    return relative_path in {
+        "crates/git_ui/src/staged_diff.rs",
+        "crates/git_ui/src/unstaged_diff.rs",
+    }
+
+
 def _is_rate_prediction_modal_path(relative_path: str) -> bool:
     return relative_path == "crates/edit_prediction_ui/src/rate_prediction_modal.rs"
 
@@ -3052,6 +3257,18 @@ def _is_rust_language_path(relative_path: str) -> bool:
 
 def _is_language_model_provider_path(relative_path: str) -> bool:
     return relative_path.startswith("crates/language_models/src/provider/")
+
+
+def _is_cloud_provider_path(relative_path: str) -> bool:
+    return relative_path == "crates/language_models/src/provider/cloud.rs"
+
+
+def _is_bedrock_provider_path(relative_path: str) -> bool:
+    return relative_path == "crates/language_models/src/provider/bedrock.rs"
+
+
+def _is_context_server_store_path(relative_path: str) -> bool:
+    return relative_path == "crates/project/src/context_server_store.rs"
 
 
 def _is_language_model_registry_path(relative_path: str) -> bool:
@@ -3585,6 +3802,15 @@ TITLE_BAR_LINE_PATTERNS: tuple[LinePattern, ...] = (
     ),
 )
 
+TITLE_BAR_UPDATE_VERSION_LINE_PATTERNS: tuple[LinePattern, ...] = (
+    LinePattern(
+        re.compile(r'\bformat!\(\s*("Update to Version: \{version\}")\s*\)'),
+        "UpdateVersion.version_tooltip_message",
+        "tooltip",
+        1,
+    ),
+)
+
 
 WORKSPACE_WELCOME_LINE_PATTERNS: tuple[LinePattern, ...] = (
     LinePattern(
@@ -3638,7 +3864,18 @@ WORKSPACE_PANE_LINE_PATTERNS: tuple[LinePattern, ...] = (
         1,
     ),
     LinePattern(
-        re.compile(r'\bformat!\(\s*("\{path\} contains unsaved edits\. Do you want to save it\?")'),
+        re.compile(
+            r'^\s*("\{\} contains unsaved edits\. Do you want to save it\?"),?\s*$'
+        ),
+        "dirty_message_for",
+        "prompt_message",
+        1,
+    ),
+    LinePattern(
+        re.compile(
+            r'^\s*None\s*=>\s*("This buffer contains unsaved edits\. Do you want to save it\?")'
+            r'\.to_string\(\),?\s*$'
+        ),
         "dirty_message_for",
         "prompt_message",
         1,
@@ -4022,6 +4259,47 @@ INLINE_PROMPT_EDITOR_LINE_PATTERNS: tuple[LinePattern, ...] = (
     ),
 )
 
+EDITOR_GUTTER_TOOLTIP_LINE_PATTERNS: tuple[LinePattern, ...] = (
+    LinePattern(
+        re.compile(
+            r'^\s*Self::Set(?:Bookmark|Breakpoint)\s*=>\s*'
+            r'("(?:Set Bookmark|Set Breakpoint)")\s*,?\s*$'
+        ),
+        "GutterButtonIntent.as_str",
+        "tooltip",
+        1,
+    ),
+    LinePattern(
+        re.compile(
+            r'^\s*const RIGHT_CLICK_HINT:\s*&str\s*=\s*'
+            r'("right-click for more options");\s*$'
+        ),
+        "GutterButtonTooltip.meta_text",
+        "tooltip_meta",
+        1,
+    ),
+    LinePattern(
+        re.compile(
+            r'^\s*GutterButtonIntent::Set(?:Bookmark|Breakpoint)\s*=>\s*'
+            r'("(?:breakpoint|bookmark)")\s*,?\s*$'
+        ),
+        "GutterButtonTooltip.meta_text",
+        "tooltip_meta",
+        1,
+    ),
+    LinePattern(
+        re.compile(
+            r'\bformat!\(\s*('
+            r'"\{modifier_as_text\}-click to add a \{other\}'
+            r'\\n\{RIGHT_CLICK_HINT\}"'
+            r')\s*\)'
+        ),
+        "GutterButtonTooltip.meta_text",
+        "tooltip_meta",
+        1,
+    ),
+)
+
 
 KEYMAP_EDITOR_LINE_PATTERNS: tuple[LinePattern, ...] = (
     LinePattern(
@@ -4071,7 +4349,13 @@ KEYMAP_EDITOR_LINE_PATTERNS: tuple[LinePattern, ...] = (
         1,
     ),
     LinePattern(
-        re.compile(r'\.context\(\s*("(?:Failed to parse key context|Failed to validate action arguments)")'),
+        re.compile(
+            r'\.context\(\s*('
+            r'"(?:Failed to parse key context'
+            r'|Failed to validate action arguments'
+            r'|Could not save updated keybinding)"'
+            r')'
+        ),
         "InputError.context",
         "input_error",
         1,
@@ -4219,6 +4503,19 @@ RUST_LANGUAGE_MULTILINE_STARTS: tuple[tuple[re.Pattern[str], str, str], ...] = (
         re.compile(r'^\s*label:\s*format!\(\s*$'),
         "TaskTemplate.label",
         "task_template_label",
+    ),
+)
+
+
+CLOUD_PROVIDER_LINE_PATTERNS: tuple[LinePattern, ...] = (
+    LinePattern(
+        re.compile(
+            r'^\s*Some\(Plan::[A-Za-z0-9_]+\)\s*=>\s*Some\('
+            r'("Subscribed to (?:\\.|[^"\\])+")\.into\(\)\),\s*$'
+        ),
+        "InlineProviderSettings.title",
+        "label",
+        1,
     ),
 )
 

@@ -372,14 +372,19 @@ struct I18nReleaseAsset {
     if "check_if_i18n_fetched_version_is_newer" not in text:
         text = _replace_required(
             text,
-            "        let parsed_fetched_version = fetched_version.parse::<Version>();\n\n",
-            """        let parsed_fetched_version = fetched_version.parse::<Version>();
+            "        let fetched_version = fetched_version.parse::<Version>()?;\n\n",
+            """        let fetched_version = fetched_version.parse::<Version>()?;
 
         if option_env!("ZED_I18N_UPDATE_MANIFEST_URL").is_some() {
-            return Self::check_if_i18n_fetched_version_is_newer(
-                installed_version,
-                parsed_fetched_version?,
-            );
+            let current_version = if let AutoUpdateStatus::Updated { version } = status {
+                version
+            } else {
+                installed_version
+            };
+            return Ok(Self::check_if_i18n_fetched_version_is_newer(
+                current_version,
+                fetched_version,
+            ));
         }
 
 """,
@@ -460,15 +465,22 @@ I18N_RELEASE_ASSET_FUNCTION = """    async fn get_i18n_release_asset(
 I18N_VERSION_CHECK_FUNCTION = """    fn check_if_i18n_fetched_version_is_newer(
         mut installed_version: Version,
         fetched_version: Version,
-    ) -> Result<Option<VersionCheckType>> {
+    ) -> Option<Version> {
         let fetched_revision = fetched_version
             .build
             .as_str()
             .strip_prefix("i18n.")
             .and_then(|revision| revision.parse::<u64>().ok())
             .unwrap_or_default();
-        let installed_revision = option_env!("ZED_I18N_REVISION")
+        let installed_revision = installed_version
+            .build
+            .as_str()
+            .strip_prefix("i18n.")
             .and_then(|revision| revision.parse::<u64>().ok())
+            .or_else(|| {
+                option_env!("ZED_I18N_REVISION")
+                    .and_then(|revision| revision.parse::<u64>().ok())
+            })
             .unwrap_or_default();
 
         let mut fetched_base_version = fetched_version.clone();
@@ -479,8 +491,7 @@ I18N_VERSION_CHECK_FUNCTION = """    fn check_if_i18n_fetched_version_is_newer(
 
         let should_download = fetched_base_version > installed_version
             || (fetched_base_version == installed_version && fetched_revision > installed_revision);
-        let newer_version = should_download.then(|| VersionCheckType::Semantic(fetched_version));
-        Ok(newer_version)
+        should_download.then_some(fetched_version)
     }
 """
 
