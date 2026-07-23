@@ -45,6 +45,26 @@ class RustStringTests(unittest.TestCase):
                 "{} 件のコメント{:.0}",
             )
         )
+        self.assertTrue(
+            rust_format_placeholders_compatible(
+                "{errors} error{}",
+                "{errors} 件のエラー{:.0}",
+            )
+        )
+        self.assertTrue(
+            rust_format_placeholders_compatible(
+                "{warnings} warning{}",
+                "{warnings} 件の警告{:.0}",
+            )
+        )
+
+    def test_keeps_plural_suffix_placeholder_for_known_plural_suffix(self) -> None:
+        self.assertTrue(
+            rust_format_placeholders_compatible(
+                "{errors} error{}",
+                "{errors} erreur{}",
+            )
+        )
 
     def test_rejects_zero_precision_placeholder_for_unlisted_source(self) -> None:
         self.assertFalse(

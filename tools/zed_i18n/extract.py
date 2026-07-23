@@ -335,6 +335,11 @@ RATE_PREDICTION_TRIGGER_LABEL_SOURCES = {
     "LSP Completion Accepted",
     "Prediction Accepted",
     "Prediction Partially Accepted",
+    "Editor Created",
+    "Provider Changed",
+    "User Info Changed",
+    "Vim Mode Changed",
+    "Settings Changed",
     "Other",
 }
 
@@ -419,7 +424,47 @@ TEXT_FINDER_PICKER_ACTION_SOURCES = {
     "Up",
     "Down",
     "Open File",
+    "Open Multiple",
     "Open as Tab",
+}
+
+TERMINAL_TRUNCATION_TOOLTIP_SOURCES = {
+    "Output exceeded terminal max lines and was truncated, the model received the first {}.",
+    "Output is {} long, and to avoid unexpected token usage, only {} was sent back to the agent.",
+    "Output was truncated",
+}
+
+GIT_COMMIT_CONTEXT_HEADER_SOURCES = {
+    "Ref {ref_name}",
+    "Commit {sha_short}",
+}
+
+GIT_BRANCH_FILTER_LABEL_SOURCES = {
+    "All Branches",
+    "Local Branches",
+    "Remote Branches",
+}
+
+DIAGNOSTICS_ARIA_LABEL_SOURCES = {
+    "{errors} error{}",
+    "{warnings} warning{}",
+}
+
+SKILL_DELETE_PROMPT_FRAGMENT_SOURCES = {
+    "global",
+    "project",
+    "used in this project",
+    "on this machine",
+}
+
+WORKSPACE_DOCK_ARIA_LABEL_SOURCES = {
+    "Left dock",
+    "Right dock",
+    "Bottom dock",
+}
+
+ASKPASS_PROMPT_SOURCES = {
+    "Enter passphrase for your Git signing key:",
 }
 
 PICKER_PREVIEW_MESSAGE_SOURCES = {
@@ -944,6 +989,10 @@ def _contextual_rules_for_call(call: str, relative_path: str) -> tuple[tuple[int
         return ((0, "error_prompt", _prompt_error_call_name(canonical)),)
     if _is_method_call(canonical, "show_error"):
         return ((0, "error_prompt", "show_error"),)
+    if _is_git_panel_path(relative_path) and canonical.endswith(
+        "render_history_placeholder"
+    ):
+        return ((0, "empty_state", "render_history_placeholder"),)
     if _is_git_panel_path(relative_path) and canonical == "error_spawn":
         return ((0, "error_prompt", "error_spawn"),)
     if _is_git_commit_view_path(relative_path) and canonical.endswith("Self::stash_action"):
@@ -1094,6 +1143,35 @@ def _extract_ui_return_method_occurrences(source_bytes: bytes, node, relative_pa
         rule = ("dock_position_label", "DockPosition.label")
     if rule is None and _is_agent_tool_path(relative_path) and method_name == "initial_title":
         rule = ("agent_tool_title", "initial_title")
+    if (
+        rule is None
+        and relative_path == "crates/agent/src/tools/context_server_registry.rs"
+        and method_name == "format_mcp_initial_title"
+    ):
+        rule = ("agent_tool_title", "format_mcp_initial_title")
+    if (
+        rule is None
+        and relative_path == "crates/ui/src/components/collab/update_button.rs"
+        and method_name in {"version_tooltip_message", "downloading_tooltip_message"}
+    ):
+        rule = ("tooltip", f"UpdateButton.{method_name}")
+    if rule is None and relative_path == "crates/lsp_locations/src/lsp_locations.rs":
+        if method_name == "placeholder":
+            rule = ("placeholder", "LspPickerKind.placeholder")
+        elif method_name == "empty_message":
+            rule = ("empty_state", "LspPickerKind.empty_message")
+    if (
+        rule is None
+        and relative_path == "crates/csv_preview/src/renderer/table_header.rs"
+        and method_name == "format_filter_label"
+    ):
+        rule = ("context_menu_entry", "format_filter_label")
+    if (
+        rule is None
+        and relative_path == "crates/agent_ui/src/unicode_confusables.rs"
+        and method_name == "well_known_name"
+    ):
+        rule = ("unicode_confusable_description", "well_known_name")
     if rule is None and _is_update_title_tool_path(relative_path):
         if method_name == "title_for_input":
             rule = ("agent_tool_title", "UpdateTitleTool.title_for_input")
@@ -1836,6 +1914,62 @@ def _allowed_literal_rules_for_path(
     relative_path: str,
 ) -> list[tuple[set[str], str, str]]:
     rules: list[tuple[set[str], str, str]] = []
+    if relative_path == "crates/agent_ui/src/conversation_view/thread_view.rs":
+        rules.append(
+            (
+                TERMINAL_TRUNCATION_TOOLTIP_SOURCES,
+                "tooltip",
+                "TerminalToolHeader.truncated",
+            )
+        )
+    if relative_path == "crates/git_ui/src/commit_context_menu.rs":
+        rules.append(
+            (
+                GIT_COMMIT_CONTEXT_HEADER_SOURCES,
+                "context_menu_header",
+                "commit_context_menu.header",
+            )
+        )
+    if relative_path == "crates/git_ui/src/branch_picker.rs":
+        rules.append(
+            (
+                GIT_BRANCH_FILTER_LABEL_SOURCES,
+                "branch_filter_label",
+                "BranchFilter.label",
+            )
+        )
+    if relative_path == "crates/diagnostics/src/items.rs":
+        rules.append(
+            (
+                DIAGNOSTICS_ARIA_LABEL_SOURCES,
+                "accessibility_label",
+                "diagnostics_aria_label",
+            )
+        )
+    if relative_path == "crates/settings_ui/src/pages/skills_setup.rs":
+        rules.append(
+            (
+                SKILL_DELETE_PROMPT_FRAGMENT_SOURCES,
+                "prompt_fragment",
+                "SkillSetup.delete_prompt",
+            )
+        )
+    if relative_path == "crates/workspace/src/workspace.rs":
+        rules.append(
+            (
+                WORKSPACE_DOCK_ARIA_LABEL_SOURCES,
+                "accessibility_label",
+                "workspace_dock_aria_label",
+            )
+        )
+    if relative_path == "crates/askpass/src/askpass.rs":
+        rules.append(
+            (
+                ASKPASS_PROMPT_SOURCES,
+                "prompt_message",
+                "askpass.signing_prompt",
+            )
+        )
     if _is_agent_completion_provider_path(relative_path):
         rules.append(
             (

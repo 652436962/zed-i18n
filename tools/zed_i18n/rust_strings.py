@@ -10,6 +10,8 @@ _ZERO_PRECISION_SUFFIX_PLACEHOLDER = "{:.0}"
 _ZERO_PRECISION_SUFFIX_SOURCES = {
     "Resolve Merge Conflict{} with Agent": frozenset({0}),
     "Show {} warning{}": frozenset({1}),
+    "{errors} error{}": frozenset({0}),
+    "{warnings} warning{}": frozenset({0}),
     "{} Comment{}": frozenset({1}),
 }
 

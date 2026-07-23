@@ -6016,6 +6016,416 @@ class ExtractTests(unittest.TestCase):
 
         self.assertEqual({occurrence.source for occurrence in occurrences}, set())
 
+    def test_extracts_moved_mcp_tool_title_formatter(self) -> None:
+        source = "\n".join(
+            [
+                "fn format_mcp_initial_title(tool_name: &str, input: &Value) -> String {",
+                "    if let Some(preview) = preview(input) {",
+                '        format!("Run MCP tool `{}` {}", tool_name, preview)',
+                "    } else {",
+                '        format!("Run MCP tool `{}`", tool_name)',
+                "    }",
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/agent/src/tools/context_server_registry.rs",
+        )
+
+        self.assertEqual(
+            {occurrence.source for occurrence in occurrences},
+            {"Run MCP tool `{}` {}", "Run MCP tool `{}`"},
+        )
+
+    def test_extracts_terminal_truncation_tooltips_passed_through_header(self) -> None:
+        source = "\n".join(
+            [
+                "fn render_terminal_tool_call(truncated_output: bool) {",
+                "    let truncated_tooltip = truncated_output.then(|| {",
+                "        if output_is_too_long {",
+                '            format!("Output exceeded terminal max lines and was truncated, the model received the first {}.", size)',
+                "        } else if let Some(output) = output {",
+                '            format!("Output is {} long, and to avoid unexpected token usage, only {} was sent back to the agent.", original, sent)',
+                "        } else {",
+                '            "Output was truncated".to_string()',
+                "        }",
+                "    });",
+                "    header.when_some(truncated_tooltip, |header, tooltip| header.truncated(tooltip));",
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/agent_ui/src/conversation_view/thread_view.rs",
+        )
+
+        self.assertEqual(
+            {occurrence.source for occurrence in occurrences},
+            {
+                "Output exceeded terminal max lines and was truncated, the model received the first {}.",
+                "Output is {} long, and to avoid unexpected token usage, only {} was sent back to the agent.",
+                "Output was truncated",
+            },
+        )
+
+    def test_extracts_commit_context_menu_header_local_binding(self) -> None:
+        source = "\n".join(
+            [
+                "fn commit_context_menu(ref_name: Option<&str>) {",
+                "    let header = match ref_name {",
+                '        Some(ref_name) => format!("Ref {ref_name}"),',
+                '        None => format!("Commit {sha_short}"),',
+                "    };",
+                "    context_menu.header(header);",
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/git_ui/src/commit_context_menu.rs",
+        )
+
+        self.assertEqual(
+            {occurrence.source for occurrence in occurrences},
+            {"Ref {ref_name}", "Commit {sha_short}"},
+        )
+
+    def test_extracts_git_history_placeholder_helper_arguments(self) -> None:
+        source = "\n".join(
+            [
+                "fn render_history_tab() {",
+                '    Self::render_history_placeholder("No repository found");',
+                '    Self::render_history_placeholder("Failed to load commit history");',
+                '    Self::render_history_placeholder("Loading Commit History…");',
+                '    Self::render_history_placeholder("No commits yet");',
+                '    Self::render_history_placeholder("Failed to load commits");',
+                "}",
+                "fn render_history_placeholder(message: &'static str) {",
+                "    Label::new(message);",
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/git_ui/src/git_panel.rs",
+        )
+
+        self.assertEqual(
+            {occurrence.source for occurrence in occurrences},
+            {
+                "No repository found",
+                "Failed to load commit history",
+                "Loading Commit History…",
+                "No commits yet",
+                "Failed to load commits",
+            },
+        )
+
+    def test_extracts_collab_update_button_tooltip_formatters(self) -> None:
+        source = "\n".join(
+            [
+                "impl UpdateButton {",
+                "    pub fn version_tooltip_message(version: impl Display) -> String {",
+                '        format!("Update to Version: {version}")',
+                "    }",
+                "    pub fn downloading_tooltip_message(progress: f32) -> String {",
+                '        format!("{message} ({:.0}% downloaded)", progress)',
+                "    }",
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/ui/src/components/collab/update_button.rs",
+        )
+
+        self.assertEqual(
+            {occurrence.source for occurrence in occurrences},
+            {"Update to Version: {version}", "{message} ({:.0}% downloaded)"},
+        )
+
+    def test_extracts_branch_filter_labels(self) -> None:
+        source = "\n".join(
+            [
+                "impl BranchFilter {",
+                "    fn label(self) -> &'static str {",
+                "        match self {",
+                '            Self::All => "All Branches",',
+                '            Self::Local => "Local Branches",',
+                '            Self::Remote => "Remote Branches",',
+                "        }",
+                "    }",
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/git_ui/src/branch_picker.rs",
+        )
+
+        self.assertEqual(
+            {occurrence.source for occurrence in occurrences},
+            {"All Branches", "Local Branches", "Remote Branches"},
+        )
+
+    def test_extracts_lsp_location_picker_messages(self) -> None:
+        source = "\n".join(
+            [
+                "impl LspLocationKind {",
+                "    fn placeholder(self) -> &'static str {",
+                "        match self {",
+                '            Self::References => "Filter references…",',
+                '            Self::Definitions => "Filter definitions…",',
+                '            Self::Implementations => "Filter implementations…",',
+                "        }",
+                "    }",
+                "    fn empty_message(self) -> &'static str {",
+                "        match self {",
+                '            Self::References => "No references found",',
+                '            Self::Definitions => "No definitions found",',
+                '            Self::Implementations => "No implementations found",',
+                "        }",
+                "    }",
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/lsp_locations/src/lsp_locations.rs",
+        )
+
+        self.assertEqual(
+            {occurrence.source for occurrence in occurrences},
+            {
+                "Filter references…",
+                "Filter definitions…",
+                "Filter implementations…",
+                "No references found",
+                "No definitions found",
+                "No implementations found",
+            },
+        )
+
+    def test_extracts_new_rate_prediction_trigger_labels(self) -> None:
+        source = "\n".join(
+            [
+                "fn render_trigger(trigger: Trigger) {",
+                "    let trigger_tooltip = match trigger {",
+                '        Trigger::EditorCreated => "Editor Created",',
+                '        Trigger::ProviderChanged => "Provider Changed",',
+                '        Trigger::UserInfoChanged => "User Info Changed",',
+                '        Trigger::VimModeChanged => "Vim Mode Changed",',
+                '        Trigger::SettingsChanged => "Settings Changed",',
+                "    };",
+                '    Tooltip::text(format!("Trigger: {trigger_tooltip}"));',
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/edit_prediction_ui/src/rate_prediction_modal.rs",
+        )
+
+        self.assertTrue(
+            {
+                "Editor Created",
+                "Provider Changed",
+                "User Info Changed",
+                "Vim Mode Changed",
+                "Settings Changed",
+            }.issubset({occurrence.source for occurrence in occurrences})
+        )
+
+    def test_extracts_diagnostics_aria_label_fragments(self) -> None:
+        source = "\n".join(
+            [
+                "fn diagnostics_label(errors: usize, warnings: usize) {",
+                '    let errors_label = format!("{errors} error{}", if errors == 1 { "" } else { "s" });',
+                '    let warnings_label = format!("{warnings} warning{}", if warnings == 1 { "" } else { "s" });',
+                "    button.aria_label(format!(\"{errors_label}, {warnings_label}\"));",
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/diagnostics/src/items.rs",
+        )
+
+        self.assertTrue(
+            {"{errors} error{}", "{warnings} warning{}"}.issubset(
+                {occurrence.source for occurrence in occurrences}
+            )
+        )
+
+    def test_extracts_csv_filter_label_formatter(self) -> None:
+        source = "\n".join(
+            [
+                "fn format_filter_label(value: Option<&str>, count: usize) -> String {",
+                "    match value {",
+                '        Some(s) => format!("{s} ({count})"),',
+                '        None => format!("<null> ({count})"),',
+                "    }",
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/csv_preview/src/renderer/table_header.rs",
+        )
+
+        self.assertEqual(
+            {occurrence.source for occurrence in occurrences},
+            {"{s} ({count})", "<null> ({count})"},
+        )
+
+    def test_extracts_text_finder_open_multiple_action(self) -> None:
+        source = "\n".join(
+            [
+                "fn action_label(selected_count: usize) {",
+                '    let label = if selected_count > 1 { "Open Multiple" } else { "Open File" };',
+                "    PickerAction::button(label, action);",
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/search/src/text_finder/delegate.rs",
+        )
+
+        self.assertEqual(
+            {occurrence.source for occurrence in occurrences},
+            {"Open Multiple", "Open File"},
+        )
+
+    def test_extracts_skill_delete_prompt_fragments(self) -> None:
+        source = "\n".join(
+            [
+                "fn delete_prompt(scope: Scope) {",
+                "    let (skill_scope, shared_scope) = match scope {",
+                '        Scope::Project => ("project", "used in this project"),',
+                '        Scope::Global => ("global", "on this machine"),',
+                "    };",
+                '    prompt(format!("Delete {skill_scope} skill?"), format!("This skill is {shared_scope}."));',
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/settings_ui/src/pages/skills_setup.rs",
+        )
+
+        self.assertTrue(
+            {"project", "global", "used in this project", "on this machine"}.issubset(
+                {occurrence.source for occurrence in occurrences}
+            )
+        )
+
+    def test_extracts_workspace_dock_aria_labels(self) -> None:
+        source = "\n".join(
+            [
+                "fn render_dock(position: DockPosition) {",
+                "    let (dock_element_id, dock_label) = match position {",
+                '        DockPosition::Left => ("left-dock", "Left dock"),',
+                '        DockPosition::Right => ("right-dock", "Right dock"),',
+                '        DockPosition::Bottom => ("bottom-dock", "Bottom dock"),',
+                "    };",
+                "    div().when(dock_is_open, |this| {",
+                "        this.role(Role::Complementary).aria_label(dock_label)",
+                "    });",
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/workspace/src/workspace.rs",
+        )
+
+        self.assertEqual(
+            {occurrence.source for occurrence in occurrences},
+            {"Left dock", "Right dock", "Bottom dock"},
+        )
+
+    def test_extracts_askpass_signing_prompt(self) -> None:
+        source = "\n".join(
+            [
+                "fn request_passphrase() {",
+                '    askpass.send_prompt("Enter passphrase for your Git signing key:");',
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/askpass/src/askpass.rs",
+        )
+
+        self.assertEqual(
+            {occurrence.source for occurrence in occurrences},
+            {"Enter passphrase for your Git signing key:"},
+        )
+
+    def test_extracts_unicode_confusable_descriptions(self) -> None:
+        descriptions = {
+            "no-break space",
+            "soft hyphen",
+            "arabic letter mark",
+            "mongolian vowel separator",
+            "zero-width space",
+            "zero-width non-joiner",
+            "zero-width joiner",
+            "left-to-right mark",
+            "right-to-left mark",
+            "left-to-right embedding",
+            "right-to-left embedding",
+            "pop directional formatting",
+            "left-to-right override",
+            "right-to-left override",
+            "word joiner",
+            "left-to-right isolate",
+            "right-to-left isolate",
+            "first strong isolate",
+            "pop directional isolate",
+            "ideographic space",
+            "zero-width no-break space",
+        }
+        source = "\n".join(
+            [
+                "fn well_known_name(character: char) -> Option<&'static str> {",
+                "    Some(match character {",
+                *[
+                    f'        {index} => "{description}",'
+                    for index, description in enumerate(sorted(descriptions))
+                ],
+                "        _ => return None,",
+                "    })",
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/agent_ui/src/unicode_confusables.rs",
+        )
+
+        self.assertEqual(
+            {occurrence.source for occurrence in occurrences},
+            descriptions,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
