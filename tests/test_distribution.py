@@ -239,8 +239,21 @@ fn app_menus() -> Vec<Menu> {
         self.assertEqual(config.product_name, "Zed i18n")
         self.assertEqual(config.macos_bundle_id, "dev.zed-i18n.Zed")
         self.assertEqual(config.linux_app_id, "dev.zed-i18n.Zed")
+        self.assertEqual(config.windows_app_identifier, "ZedI18n-Editor-Stable")
+        self.assertEqual(
+            config.windows_mutex,
+            f"{config.windows_app_identifier}-Instance-Mutex",
+        )
         self.assertEqual(config.windows_app_id, "{{48948123-2766-49EA-9C78-31B8096DE3D6}")
         self.assertTrue(config.update_enabled)
+
+    def test_repository_config_matches_windows_runtime_mutex(self) -> None:
+        config = load_distribution_config(Path.cwd() / "config" / "distribution.toml")
+
+        self.assertEqual(
+            config.windows_mutex,
+            f"{config.windows_app_identifier}-Instance-Mutex",
+        )
 
     def test_applies_minimal_identity_about_and_updater_patches(self) -> None:
         config = load_distribution_config(self.write_config(""))
@@ -270,12 +283,20 @@ fn app_menus() -> Vec<Menu> {
         self.assertNotIn("Repository:", about)
         self.assertNotIn("ZED_I18N_REPOSITORY", about)
         self.assertNotIn("(zed-i18n {locale}", about)
+        self.assertIn(
+            'ReleaseChannel::Stable => "ZedI18n-Editor-Stable"',
+            release_channel,
+        )
         self.assertIn('ReleaseChannel::Stable => "dev.zed-i18n.Zed"', release_channel)
         self.assertIn('identifier = "dev.zed-i18n.Zed"', cargo_toml)
         self.assertIn('name = "Zed i18n"', cargo_toml)
         self.assertIn('$appId = "{{48948123-2766-49EA-9C78-31B8096DE3D6}"', bundle_windows)
         self.assertNotIn('$appId = "{{48948123-2766-49EA-9C78-31B8096DE3D6}}"', bundle_windows)
         self.assertIn('$appName = "Zed i18n"', bundle_windows)
+        self.assertIn(
+            '$appMutex = "ZedI18n-Editor-Stable-Instance-Mutex"',
+            bundle_windows,
+        )
         self.assertIn('$appExeName = "Zed"', bundle_windows)
         self.assertIn('"stable" => ("app-icon.ico", "Zed i18n")', windows_resources)
         self.assertIn('"preview" => ("app-icon-preview.ico", "Zed Preview")', windows_resources)

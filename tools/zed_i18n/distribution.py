@@ -18,7 +18,7 @@ class DistributionConfig:
     windows_app_user_id: str = "ZedI18n.Zed"
     windows_appx_name: str = "ZedI18n.Zed"
     windows_appx_full_name: str = "ZedI18n.Zed_1.0.0.0_neutral__japxn1gcva8rg"
-    windows_mutex: str = "Zed-i18n-Stable-Instance-Mutex"
+    windows_mutex: str = "ZedI18n-Editor-Stable-Instance-Mutex"
     windows_registry_value: str = "ZedI18n"
     windows_setup_name: str = "Zed-i18n"
     windows_shell_name_short: str = "Z&ed i18n"
