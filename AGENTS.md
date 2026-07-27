@@ -46,12 +46,13 @@ fetch-zed
 - `.cache/zed/<version>` — for `apply` and local builds.
 - Do not delete `.cache/zed` or run `cargo clean` unless the user explicitly asks.
 - When bumping the Zed version in `config/project.toml`, manually review the `distribution.py` patch targets and the `config/distribution.toml` overlay against the fetched Zed checkout before release work.
-- When bumping the Zed version, update `README.md` and every `docs/readme/*.md` localized README so badges, release links, and example checkout paths match `config/project.toml`.
+- When bumping the Zed version, update the README source of truth at `docs/readme/ko-KR.md` first, then synchronize `README.md` and every other `docs/readme/*.md` localized README in the same version-bump task so badges, release links, and example checkout paths match `config/project.toml`.
 - After bumping the Zed version and running `fetch-zed`, run the Zed patch contract test before release work:
   `ZED_I18N_REQUIRE_ZED_PATCH_CONTRACT=1 ZED_I18N_PATCH_CONTRACT_ZED_ROOT=.cache/zed/<version> uv run python -m unittest tests.test_zed_patch_contracts`.
 - After a version-bump extract, run `uv run zed-i18n generate-version-diff` (or pass `--base-ref <ref>` for a non-default baseline). The command reads the Git baseline and writes the gitignored, regeneratable report at `reports/version-diff/<from-version>-to-<to-version>/key-changes.json`.
 - The main orchestrator only runs the generator command. It must not compare keys, classify semantic relationships, rewrite candidates, or distribute candidate records to translation agents.
 - During a version bump, investigate key changes for the bump report, not for translation (reference injection stays automatic): sweep the upstream changes between the old and new clean checkouts for user-visible strings that never landed in the catalog (extraction gaps), treat report `candidates` as likely renamed or reshaped keys, and check deleted keys without candidates against the new checkout before concluding they are truly gone.
+- Before a version bump ends, review every newly added key individually, using parallel read-only sub-agents when useful. For each key, inspect its actual source location, surrounding code, related strings, and any applicable `context_group`, then set its status in `manifest/ui-strings.json` to `accepted` or `ignored`. Do not decide from generated audit or version-diff reports alone.
 - A version bump ends with a user-facing summary of added and deleted keys that flags likely renamed/reshaped pairs; do not translate new keys during the bump itself. New-key translation is a separate follow-up run driven by `prompts/commands/translation-start-new-keys.md`.
 - If Zed-side changes require code updates during a version bump, update this project for the current target Zed version instead of preserving compatibility with older Zed versions.
 

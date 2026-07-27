@@ -3,43 +3,43 @@
     "occurrences": [
       {
         "call": "ListBulletItem::new",
-        "end_byte": 89786,
+        "end_byte": 90363,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "list_bullet_item",
-        "line": 2310,
-        "start_byte": 89784
+        "line": 2321,
+        "start_byte": 90361
       },
       {
         "call": "ListBulletItem::new",
-        "end_byte": 90427,
+        "end_byte": 91004,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "list_bullet_item",
-        "line": 2323,
-        "start_byte": 90425
+        "line": 2334,
+        "start_byte": 91002
       },
       {
         "call": "ListBulletItem::new",
-        "end_byte": 91199,
+        "end_byte": 91776,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "list_bullet_item",
-        "line": 2343,
-        "start_byte": 91197
+        "line": 2354,
+        "start_byte": 91774
       },
       {
         "call": "ListBulletItem::new",
-        "end_byte": 91750,
-        "file": "crates/language_models/src/provider/bedrock.rs",
-        "kind": "list_bullet_item",
-        "line": 2356,
-        "start_byte": 91748
-      },
-      {
-        "call": "ListBulletItem::new",
-        "end_byte": 92222,
+        "end_byte": 92327,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "list_bullet_item",
         "line": 2367,
-        "start_byte": 92220
+        "start_byte": 92325
+      },
+      {
+        "call": "ListBulletItem::new",
+        "end_byte": 92799,
+        "file": "crates/language_models/src/provider/bedrock.rs",
+        "kind": "list_bullet_item",
+        "line": 2378,
+        "start_byte": 92797
       },
       {
         "call": "ListBulletItem::new",
@@ -4390,11 +4390,11 @@
     "occurrences": [
       {
         "call": "label",
-        "end_byte": 81253,
+        "end_byte": 81830,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2070,
-        "start_byte": 81238
+        "line": 2081,
+        "start_byte": 81815
       }
     ],
     "status": "accepted"
@@ -7661,11 +7661,11 @@
     "occurrences": [
       {
         "call": "Headline::new",
-        "end_byte": 89179,
+        "end_byte": 89756,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "headline",
-        "line": 2295,
-        "start_byte": 89163
+        "line": 2306,
+        "start_byte": 89740
       }
     ],
     "status": "accepted"
@@ -8624,11 +8624,11 @@
     "occurrences": [
       {
         "call": "Label::new",
-        "end_byte": 92332,
+        "end_byte": 92909,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2369,
-        "start_byte": 92287
+        "line": 2380,
+        "start_byte": 92864
       }
     ],
     "status": "accepted"
@@ -10016,11 +10016,11 @@
     "occurrences": [
       {
         "call": "label",
-        "end_byte": 82002,
+        "end_byte": 82579,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2091,
-        "start_byte": 81985
+        "line": 2102,
+        "start_byte": 82562
       }
     ],
     "status": "accepted"
@@ -10029,11 +10029,11 @@
     "occurrences": [
       {
         "call": "ButtonLink::new",
-        "end_byte": 92026,
+        "end_byte": 92603,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "button_link",
-        "line": 2362,
-        "start_byte": 92009
+        "line": 2373,
+        "start_byte": 92586
       }
     ],
     "status": "accepted"
@@ -10055,11 +10055,11 @@
     "occurrences": [
       {
         "call": "ButtonLink::new",
-        "end_byte": 90750,
+        "end_byte": 91327,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "button_link",
-        "line": 2329,
-        "start_byte": 90727
+        "line": 2340,
+        "start_byte": 91304
       }
     ],
     "status": "accepted"
@@ -10873,11 +10873,11 @@
     "occurrences": [
       {
         "call": "Label::new",
-        "end_byte": 89578,
+        "end_byte": 90155,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2303,
-        "start_byte": 89528
+        "line": 2314,
+        "start_byte": 90105
       }
     ],
     "status": "accepted"
@@ -18108,11 +18108,11 @@
       },
       {
         "call": "tooltip_label",
-        "end_byte": 47873,
+        "end_byte": 47833,
         "file": "crates/editor/src/hover_popover.rs",
         "kind": "tooltip",
-        "line": 1254,
-        "start_byte": 47856
+        "line": 1253,
+        "start_byte": 47816
       }
     ],
     "status": "accepted"
@@ -32059,11 +32059,11 @@
     "occurrences": [
       {
         "call": "ListBulletItem::new",
-        "end_byte": 92768,
+        "end_byte": 93345,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "list_bullet_item",
-        "line": 2379,
-        "start_byte": 92704
+        "line": 2390,
+        "start_byte": 93281
       }
     ],
     "status": "accepted"
@@ -38051,11 +38051,11 @@
     "occurrences": [
       {
         "call": "Label::new",
-        "end_byte": 91867,
+        "end_byte": 92444,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2358,
-        "start_byte": 91815
+        "line": 2369,
+        "start_byte": 92392
       }
     ],
     "status": "accepted"
@@ -38106,11 +38106,11 @@
     "occurrences": [
       {
         "call": "Label::new",
-        "end_byte": 91374,
+        "end_byte": 91951,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2346,
-        "start_byte": 91293
+        "line": 2357,
+        "start_byte": 91870
       }
     ],
     "status": "accepted"
@@ -40666,11 +40666,11 @@
     "occurrences": [
       {
         "call": "Label::new",
-        "end_byte": 89968,
+        "end_byte": 90545,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2313,
-        "start_byte": 89904
+        "line": 2324,
+        "start_byte": 90481
       }
     ],
     "status": "accepted"
@@ -42482,11 +42482,11 @@
     "occurrences": [
       {
         "call": "ButtonLink::new",
-        "end_byte": 91551,
+        "end_byte": 92128,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "button_link",
-        "line": 2351,
-        "start_byte": 91538
+        "line": 2362,
+        "start_byte": 92115
       }
     ],
     "status": "accepted"
@@ -47620,11 +47620,11 @@
     "occurrences": [
       {
         "call": "Label::new",
-        "end_byte": 86014,
+        "end_byte": 86591,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2221,
-        "start_byte": 85990
+        "line": 2232,
+        "start_byte": 86567
       }
     ],
     "status": "accepted"
@@ -54478,11 +54478,11 @@
     "occurrences": [
       {
         "call": "ConfiguredApiCard::new",
-        "end_byte": 87268,
+        "end_byte": 87845,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "configured_api_card_label",
-        "line": 2248,
-        "start_byte": 87249
+        "line": 2259,
+        "start_byte": 87826
       }
     ],
     "status": "accepted"
@@ -59013,11 +59013,11 @@
     "occurrences": [
       {
         "call": "Label::new",
-        "end_byte": 94346,
+        "end_byte": 94923,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2417,
-        "start_byte": 94172
+        "line": 2428,
+        "start_byte": 94749
       }
     ],
     "status": "accepted"
@@ -60956,11 +60956,11 @@
     "occurrences": [
       {
         "call": "ButtonLink::new",
-        "end_byte": 90187,
+        "end_byte": 90764,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "button_link",
-        "line": 2318,
-        "start_byte": 90172
+        "line": 2329,
+        "start_byte": 90749
       }
     ],
     "status": "accepted"
@@ -63398,11 +63398,11 @@
     "occurrences": [
       {
         "call": "Label::new",
-        "end_byte": 94986,
+        "end_byte": 95563,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2432,
-        "start_byte": 94894
+        "line": 2443,
+        "start_byte": 95471
       }
     ],
     "status": "accepted"
@@ -69943,11 +69943,11 @@
     "occurrences": [
       {
         "call": "label",
-        "end_byte": 81507,
+        "end_byte": 82084,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2077,
-        "start_byte": 81488
+        "line": 2088,
+        "start_byte": 82065
       }
     ],
     "status": "accepted"
@@ -70836,11 +70836,11 @@
     "occurrences": [
       {
         "call": "Label::new",
-        "end_byte": 90553,
+        "end_byte": 91130,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2325,
-        "start_byte": 90508
+        "line": 2336,
+        "start_byte": 91085
       }
     ],
     "status": "accepted"
@@ -72594,11 +72594,11 @@
     "occurrences": [
       {
         "call": "label",
-        "end_byte": 81760,
+        "end_byte": 82337,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2084,
-        "start_byte": 81734
+        "line": 2095,
+        "start_byte": 82311
       }
     ],
     "status": "accepted"
@@ -79133,11 +79133,11 @@
     "occurrences": [
       {
         "call": "Label::new",
-        "end_byte": 93025,
+        "end_byte": 93602,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2389,
-        "start_byte": 93005
+        "line": 2400,
+        "start_byte": 93582
       }
     ],
     "status": "accepted"
@@ -86067,11 +86067,11 @@
     "occurrences": [
       {
         "call": "Label::new",
-        "end_byte": 93189,
+        "end_byte": 93766,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2392,
-        "start_byte": 93103
+        "line": 2403,
+        "start_byte": 93680
       }
     ],
     "status": "accepted"
@@ -87080,11 +87080,11 @@
     "occurrences": [
       {
         "call": "Label::new",
-        "end_byte": 89409,
+        "end_byte": 89986,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2298,
-        "start_byte": 89276
+        "line": 2309,
+        "start_byte": 89853
       }
     ],
     "status": "accepted"
@@ -93022,11 +93022,11 @@
     "occurrences": [
       {
         "call": "ConfiguredApiCard::new",
-        "end_byte": 86488,
+        "end_byte": 87065,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "configured_api_card_label",
-        "line": 2232,
-        "start_byte": 86449
+        "line": 2243,
+        "start_byte": 87026
       }
     ],
     "status": "accepted"
@@ -93035,11 +93035,11 @@
     "occurrences": [
       {
         "call": "ConfiguredApiCard::new",
-        "end_byte": 86343,
+        "end_byte": 86920,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "configured_api_card_label",
-        "line": 2229,
-        "start_byte": 86308
+        "line": 2240,
+        "start_byte": 86885
       }
     ],
     "status": "accepted"
@@ -93048,11 +93048,11 @@
     "occurrences": [
       {
         "call": "ConfiguredApiCard::new",
-        "end_byte": 87220,
+        "end_byte": 87797,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "configured_api_card_label",
-        "line": 2247,
-        "start_byte": 87197
+        "line": 2258,
+        "start_byte": 87774
       }
     ],
     "status": "accepted"
@@ -93061,11 +93061,11 @@
     "occurrences": [
       {
         "call": "ConfiguredApiCard::new",
-        "end_byte": 87061,
+        "end_byte": 87638,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "configured_api_card_label",
-        "line": 2243,
-        "start_byte": 87009
+        "line": 2254,
+        "start_byte": 87586
       }
     ],
     "status": "accepted"
@@ -93087,11 +93087,11 @@
     "occurrences": [
       {
         "call": "ConfiguredApiCard::new",
-        "end_byte": 86890,
+        "end_byte": 87467,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "configured_api_card_label",
-        "line": 2240,
-        "start_byte": 86867
+        "line": 2251,
+        "start_byte": 87444
       }
     ],
     "status": "accepted"
@@ -93100,11 +93100,11 @@
     "occurrences": [
       {
         "call": "ConfiguredApiCard::new",
-        "end_byte": 86682,
+        "end_byte": 87259,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "configured_api_card_label",
-        "line": 2236,
-        "start_byte": 86622
+        "line": 2247,
+        "start_byte": 87199
       }
     ],
     "status": "accepted"
@@ -93113,11 +93113,11 @@
     "occurrences": [
       {
         "call": "ConfiguredApiCard::new",
-        "end_byte": 86196,
+        "end_byte": 86773,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "configured_api_card_label",
-        "line": 2226,
-        "start_byte": 86147
+        "line": 2237,
+        "start_byte": 86724
       }
     ],
     "status": "accepted"
@@ -93126,11 +93126,11 @@
     "occurrences": [
       {
         "call": "Label::new",
-        "end_byte": 94748,
+        "end_byte": 95325,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2428,
-        "start_byte": 94729
+        "line": 2439,
+        "start_byte": 95306
       }
     ],
     "status": "accepted"
@@ -101194,11 +101194,11 @@
     "occurrences": [
       {
         "call": "Label::new",
-        "end_byte": 93764,
+        "end_byte": 94341,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "label",
-        "line": 2406,
-        "start_byte": 93646
+        "line": 2417,
+        "start_byte": 94223
       }
     ],
     "status": "accepted"
@@ -108296,11 +108296,11 @@
     "occurrences": [
       {
         "call": "ButtonLink::new",
-        "end_byte": 92485,
+        "end_byte": 93062,
         "file": "crates/language_models/src/provider/bedrock.rs",
         "kind": "button_link",
-        "line": 2373,
-        "start_byte": 92474
+        "line": 2384,
+        "start_byte": 93051
       }
     ],
     "status": "accepted"
