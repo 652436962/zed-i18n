@@ -34,7 +34,7 @@ jobs:
           contains(github.event.release.tag_name, '-i18n.')
         )
       }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
       - name: Checkout zed-i18n

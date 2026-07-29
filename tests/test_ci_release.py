@@ -1,8 +1,9 @@
 import json
 import io
-import subprocess
-from unittest.mock import patch
 import shutil
+import subprocess
+import tarfile
+from unittest.mock import patch
 import unittest
 from pathlib import Path
 import zipfile
@@ -13,11 +14,15 @@ from tools.zed_i18n.ci_release import (
     bundle_env,
     classify_asset,
     configure_github_rust_cache_env,
+    create_linux_deb,
     create_windows_portable_zip,
+    deb_control_content,
+    deb_package_version,
     disk_summary_entries,
     expected_app_asset_names,
     generate_release_metadata,
     github_matrix_outputs,
+    linux_deb_asset_name,
     list_translation_languages,
     MACOS_TRANSIENT_BUNDLE_ERRORS,
     patch_remote_server_build,
@@ -217,6 +222,17 @@ class CiReleaseTests(unittest.TestCase):
             },
         )
 
+        self.assertEqual(
+            classify_asset(Path("zed-i18n-zh-CN-linux-x86_64.deb")),
+            {
+                "name": "zed-i18n-zh-CN-linux-x86_64.deb",
+                "kind": "deb",
+                "locale": "zh-CN",
+                "platform": "linux",
+                "arch": "x86_64",
+            },
+        )
+
     def test_generates_manifest_and_checksums(self) -> None:
         dist_dir = self.temp_root / "dist"
         dist_dir.mkdir()
@@ -253,7 +269,9 @@ class CiReleaseTests(unittest.TestCase):
                 "Zed-i18n-ja-JP-windows-aarch64.zip",
                 "Zed-i18n-ko-KR-windows-aarch64.exe",
                 "Zed-i18n-ko-KR-windows-aarch64.zip",
+                "zed-i18n-ja-JP-linux-x86_64.deb",
                 "zed-i18n-ja-JP-linux-x86_64.tar.gz",
+                "zed-i18n-ko-KR-linux-x86_64.deb",
                 "zed-i18n-ko-KR-linux-x86_64.tar.gz",
             ],
         )
@@ -318,6 +336,86 @@ class CiReleaseTests(unittest.TestCase):
             app_source_path(self.temp_root, "windows", "x86_64", config),
             self.temp_root / "target" / "Zed-i18n-x86_64.exe",
         )
+
+    def test_deb_package_version_appends_i18n_revision(self) -> None:
+        self.assertEqual(deb_package_version("1.2.5", "v1.2.5-i18n.3"), "1.2.5+i18n.3")
+        self.assertEqual(deb_package_version("1.2.5", None), "1.2.5+i18n.0")
+
+    def test_deb_control_content_describes_locale_and_architecture(self) -> None:
+        control = deb_control_content("zh-CN", "x86_64", "1.2.5+i18n.3", 1024)
+
+        self.assertIn("Package: zed-i18n\n", control)
+        self.assertIn("Version: 1.2.5+i18n.3\n", control)
+        self.assertIn("Architecture: amd64\n", control)
+        self.assertIn("Installed-Size: 1024\n", control)
+        self.assertIn("Description: Localized build of the Zed editor (zh-CN)\n", control)
+
+        self.assertIn(
+            "Architecture: arm64\n",
+            deb_control_content("zh-CN", "aarch64", "1.2.5+i18n.3", 1024),
+        )
+        with self.assertRaises(ValueError):
+            deb_control_content("zh-CN", "riscv64", "1.2.5+i18n.3", 1024)
+
+    def write_linux_bundle_tarball(self, tarball: Path) -> None:
+        app_dir = self.temp_root / "bundle" / "zed.app"
+        (app_dir / "bin").mkdir(parents=True)
+        (app_dir / "bin" / "zed").write_text("cli", encoding="utf-8")
+        (app_dir / "libexec").mkdir()
+        (app_dir / "libexec" / "zed-editor").write_text("editor", encoding="utf-8")
+        (app_dir / "share" / "applications").mkdir(parents=True)
+        (app_dir / "share" / "applications" / "dev.zed-i18n.Zed.desktop").write_text(
+            "[Desktop Entry]\nExec=zed %U\n", encoding="utf-8"
+        )
+        tarball.parent.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(tarball, "w:gz") as archive:
+            archive.add(app_dir, arcname="zed.app")
+
+    @unittest.skipUnless(shutil.which("dpkg-deb"), "dpkg-deb is not installed")
+    def test_creates_linux_deb_from_bundle_tarball(self) -> None:
+        tarball = self.temp_root / "target" / "release" / "zed-linux-x86_64.tar.gz"
+        self.write_linux_bundle_tarball(tarball)
+        destination = self.temp_root / "dist" / linux_deb_asset_name("zh-CN", "x86_64")
+
+        create_linux_deb(tarball, "x86_64", "zh-CN", "1.2.5+i18n.3", destination)
+
+        self.assertTrue(destination.exists())
+        info = subprocess.run(
+            ["dpkg-deb", "--info", str(destination)],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        contents = subprocess.run(
+            ["dpkg-deb", "--contents", str(destination)],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        self.assertIn("Package: zed-i18n", info)
+        self.assertIn("Version: 1.2.5+i18n.3", info)
+        self.assertIn("Architecture: amd64", info)
+        self.assertIn("./usr/lib/zed-i18n/bin/zed", contents)
+        self.assertIn("./usr/lib/zed-i18n/libexec/zed-editor", contents)
+        self.assertIn("./usr/bin/zed -> ../lib/zed-i18n/bin/zed", contents)
+        self.assertIn("./usr/share/applications/dev.zed-i18n.Zed.desktop", contents)
+
+    def test_linux_deb_rejects_bundle_without_cli_binary(self) -> None:
+        app_dir = self.temp_root / "bundle" / "zed.app"
+        (app_dir / "libexec").mkdir(parents=True)
+        (app_dir / "libexec" / "zed-editor").write_text("editor", encoding="utf-8")
+        tarball = self.temp_root / "zed-linux-x86_64.tar.gz"
+        with tarfile.open(tarball, "w:gz") as archive:
+            archive.add(app_dir, arcname="zed.app")
+
+        with self.assertRaisesRegex(FileNotFoundError, "bin/zed|bin\\\\zed"):
+            create_linux_deb(
+                tarball,
+                "x86_64",
+                "zh-CN",
+                "1.2.5+i18n.3",
+                self.temp_root / "dist" / "zed-i18n-zh-CN-linux-x86_64.deb",
+            )
 
     def test_creates_windows_portable_zip_from_installer_payload(self) -> None:
         payload = self.temp_root / "inno" / "x86_64"
@@ -590,6 +688,18 @@ class CiReleaseTests(unittest.TestCase):
         self.assertIn("sudo rm -rf /Library/Developer/CoreSimulator", workflow)
         self.assertNotIn("sudo rm -rf /opt/homebrew", workflow)
         self.assertNotIn("sudo rm -rf /Users/runner/hostedtoolcache", workflow)
+
+    def test_release_workflow_defaults_to_chinese_linux_builds(self) -> None:
+        workflow = (Path.cwd() / ".github" / "workflows" / "i18n-release.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("LANGUAGES: ${{ inputs.languages || 'zh-CN' }}", workflow)
+        self.assertIn("PLATFORMS: ${{ inputs.platforms || 'linux' }}", workflow)
+        self.assertIn("--platforms \"${{ inputs.platforms || 'linux' }}\"", workflow)
+        self.assertIn("Install clang-18 from apt.llvm.org", workflow)
+        self.assertIn("runs-on: ubuntu-22.04", workflow)
+        self.assertNotIn("runs-on: ubuntu-24.04", workflow)
 
     def test_release_workflow_defaults_tag_pushes_to_single_language_shards(self) -> None:
         workflow = (Path.cwd() / ".github" / "workflows" / "i18n-release.yml").read_text(

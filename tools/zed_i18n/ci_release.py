@@ -12,6 +12,8 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
 import time
 import tomllib
 from typing import Iterable
@@ -54,8 +56,8 @@ class DiskSummaryEntry:
 
 
 BUILD_PLATFORMS: tuple[BuildPlatform, ...] = (
-    BuildPlatform("linux-x86_64", "linux", "x86_64", "ubuntu-24.04", ""),
-    BuildPlatform("linux-aarch64", "linux", "aarch64", "ubuntu-24.04-arm", ""),
+    BuildPlatform("linux-x86_64", "linux", "x86_64", "ubuntu-22.04", ""),
+    BuildPlatform("linux-aarch64", "linux", "aarch64", "ubuntu-22.04-arm", ""),
     BuildPlatform("macos-x86_64", "macos", "x86_64", "macos-15-intel", "x86_64-apple-darwin"),
     BuildPlatform("macos-aarch64", "macos", "aarch64", "macos-15", "aarch64-apple-darwin"),
     BuildPlatform("windows-x86_64", "windows", "x86_64", "windows-2022", ""),
@@ -784,8 +786,14 @@ def windows_portable_asset_name(language: str, arch: str) -> str:
     return f"Zed-i18n-{language}-windows-{arch}.zip"
 
 
+def linux_deb_asset_name(language: str, arch: str) -> str:
+    return f"zed-i18n-{language}-linux-{arch}.deb"
+
+
 def app_asset_names(language: str, platform: str, arch: str) -> list[str]:
     names = [app_asset_name(language, platform, arch)]
+    if platform == "linux":
+        names.append(linux_deb_asset_name(language, arch))
     if platform == "windows":
         names.append(windows_portable_asset_name(language, arch))
     return names
@@ -868,6 +876,129 @@ def create_windows_portable_zip(zed_root: Path, arch: str, destination: Path) ->
                 archive.write(source, entry)
 
     print(f"Created Windows portable zip {destination}")
+
+
+DEB_PACKAGE_NAME = "zed-i18n"
+DEB_INSTALL_DIR = Path("usr/lib/zed-i18n")
+DEB_ARCHITECTURES = {"x86_64": "amd64", "aarch64": "arm64"}
+DEB_DEPENDS = (
+    "libc6",
+    "libgcc-s1",
+    "libstdc++6",
+    "libxcb1",
+    "libxkbcommon0",
+    "libxkbcommon-x11-0",
+    "libvulkan1",
+    "libasound2 | libasound2t64",
+)
+
+
+def deb_architecture(arch: str) -> str:
+    if arch not in DEB_ARCHITECTURES:
+        raise ValueError(f"unsupported Debian architecture: {arch}")
+    return DEB_ARCHITECTURES[arch]
+
+
+def deb_package_version(crate_version: str, release_tag: str | None) -> str:
+    return f"{crate_version}+i18n.{parse_i18n_revision(release_tag)}"
+
+
+def extract_linux_app_dir(tarball: Path, extract_dir: Path) -> Path:
+    with tarfile.open(tarball, "r:gz") as archive:
+        archive.extractall(extract_dir, filter="data")
+    app_dirs = [path for path in extract_dir.iterdir() if path.is_dir()]
+    if len(app_dirs) != 1:
+        raise ValueError(
+            f"expected exactly one app directory in {tarball.name}, "
+            f"found: {', '.join(sorted(path.name for path in app_dirs)) or 'none'}"
+        )
+    return app_dirs[0]
+
+
+def deb_installed_size_kib(pkg_root: Path) -> int:
+    total = sum(
+        path.stat().st_size
+        for path in pkg_root.rglob("*")
+        if path.is_file() and not path.is_symlink() and "DEBIAN" not in path.parts
+    )
+    return (total + 1023) // 1024
+
+
+def deb_control_content(language: str, arch: str, version: str, installed_size_kib: int) -> str:
+    return (
+        f"Package: {DEB_PACKAGE_NAME}\n"
+        f"Version: {version}\n"
+        "Section: editors\n"
+        "Priority: optional\n"
+        f"Architecture: {deb_architecture(arch)}\n"
+        f"Installed-Size: {installed_size_kib}\n"
+        f"Depends: {', '.join(DEB_DEPENDS)}\n"
+        "Maintainer: zed-i18n <https://github.com/LI-NA/zed-i18n>\n"
+        "Homepage: https://github.com/LI-NA/zed-i18n\n"
+        f"Description: Localized build of the Zed editor ({language})\n"
+        " Zed editor build with UI strings translated by the zed-i18n project.\n"
+    )
+
+
+def create_linux_deb(
+    tarball: Path,
+    arch: str,
+    language: str,
+    version: str,
+    destination: Path,
+) -> None:
+    if not tarball.exists():
+        raise FileNotFoundError(f"expected build output does not exist: {tarball}")
+
+    with tempfile.TemporaryDirectory(prefix="zed-i18n-deb-") as temp_dir:
+        temp_path = Path(temp_dir)
+        app_dir = extract_linux_app_dir(tarball, temp_path / "extract")
+
+        pkg_root = temp_path / "pkg"
+        install_dir = pkg_root / DEB_INSTALL_DIR
+        install_dir.parent.mkdir(parents=True)
+        shutil.copytree(app_dir, install_dir, symlinks=True)
+
+        cli_binary = install_dir / "bin" / "zed"
+        if not cli_binary.exists():
+            raise FileNotFoundError(f"expected CLI binary missing from bundle: {cli_binary}")
+        bin_dir = pkg_root / "usr" / "bin"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "zed").symlink_to(Path("..") / "lib" / "zed-i18n" / "bin" / "zed")
+
+        # Expose the bundled desktop entry and icons system-wide.
+        share_dir = install_dir / "share"
+        if share_dir.is_dir():
+            shutil.copytree(
+                share_dir,
+                pkg_root / "usr" / "share",
+                symlinks=True,
+                dirs_exist_ok=True,
+            )
+
+        control_dir = pkg_root / "DEBIAN"
+        control_dir.mkdir(mode=0o755)
+        (control_dir / "control").write_text(
+            deb_control_content(language, arch, version, deb_installed_size_kib(pkg_root)),
+            encoding="utf-8",
+        )
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            destination.unlink()
+        subprocess.run(
+            [
+                "dpkg-deb",
+                "--build",
+                "--root-owner-group",
+                "-Zxz",
+                str(pkg_root),
+                str(destination),
+            ],
+            check=True,
+        )
+
+    print(f"Created Debian package {destination}")
 
 
 def configure_utf8_stdio() -> None:
@@ -1091,6 +1222,14 @@ def build_shard(
             dist_dir,
             app_asset_name(language, platform, arch),
         )
+        if platform == "linux":
+            create_linux_deb(
+                app_source_path(zed_root, platform, arch, distribution),
+                arch,
+                language,
+                deb_package_version(zed_crate_version(zed_root), release_tag),
+                dist_dir / linux_deb_asset_name(language, arch),
+            )
         if platform == "windows":
             copy_asset(
                 windows_portable_source_path(zed_root, arch, distribution),
@@ -1121,6 +1260,11 @@ APP_PATTERNS = (
         re.compile(r"^Zed-i18n-(?P<locale>.+)-windows-(?P<arch>x86_64|aarch64)\.zip$"),
         "windows",
         "portable_app",
+    ),
+    (
+        re.compile(r"^zed-i18n-(?P<locale>.+)-linux-(?P<arch>x86_64|aarch64)\.deb$"),
+        "linux",
+        "deb",
     ),
 )
 REMOTE_PATTERN = re.compile(
