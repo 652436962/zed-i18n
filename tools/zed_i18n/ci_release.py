@@ -57,7 +57,9 @@ class DiskSummaryEntry:
 
 BUILD_PLATFORMS: tuple[BuildPlatform, ...] = (
     BuildPlatform("linux-x86_64", "linux", "x86_64", "ubuntu-22.04", ""),
-    BuildPlatform("linux-aarch64", "linux", "aarch64", "ubuntu-22.04-arm", ""),
+    # ARM64 stays on 24.04 because the 22.04 arm runner runs out of resources
+    # during the link/package stage; matches the verified upstream configuration.
+    BuildPlatform("linux-aarch64", "linux", "aarch64", "ubuntu-24.04-arm", ""),
     BuildPlatform("macos-x86_64", "macos", "x86_64", "macos-15-intel", "x86_64-apple-darwin"),
     BuildPlatform("macos-aarch64", "macos", "aarch64", "macos-15", "aarch64-apple-darwin"),
     BuildPlatform("windows-x86_64", "windows", "x86_64", "windows-2022", ""),
