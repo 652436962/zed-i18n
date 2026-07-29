@@ -27,8 +27,6 @@ jobs:
   publish:
     name: Publish existing release assets
     runs-on: ubuntu-22.04
-    environment:
-      name: release
     steps:
       - name: Download combined artifact
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7

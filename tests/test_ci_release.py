@@ -522,7 +522,9 @@ class CiReleaseTests(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertIn("  publish:\n    name: Publish GitHub Release", workflow)
         self.assertIn("    permissions:\n      contents: write", workflow)
-        self.assertIn("    environment:\n      name: release", workflow)
+        # The release environment gate is intentionally removed so tag pushes
+        # can publish automatically without repository environment settings.
+        self.assertNotIn("    environment:\n      name: release", workflow)
         self.assertIn("--verify-tag", workflow)
         self.assertNotIn("--clobber", workflow)
 
