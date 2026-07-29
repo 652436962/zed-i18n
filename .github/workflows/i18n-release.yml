@@ -501,7 +501,12 @@ jobs:
     needs:
       - prepare
       - package
-    if: startsWith(github.ref, 'refs/tags/') || inputs.upload_to_release
+    if: >-
+      ${{
+        always() &&
+        needs.package.result == 'success' &&
+        (startsWith(github.ref, 'refs/tags/') || inputs.upload_to_release)
+      }}
     runs-on: ubuntu-22.04
     permissions:
       contents: write

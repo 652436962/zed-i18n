@@ -525,6 +525,15 @@ class CiReleaseTests(unittest.TestCase):
         # The release environment gate is intentionally removed so tag pushes
         # can publish automatically without repository environment settings.
         self.assertNotIn("    environment:\n      name: release", workflow)
+        # Publish must use always() so it is not skipped by the implicit
+        # success() when sibling build jobs (macOS/Windows) are skipped.
+        publish_job = workflow.split("\n  publish:\n", 1)[1]
+        self.assertIn("always() &&", publish_job)
+        self.assertIn("needs.package.result == 'success'", publish_job)
+        self.assertIn(
+            "(startsWith(github.ref, 'refs/tags/') || inputs.upload_to_release)",
+            publish_job,
+        )
         self.assertIn("--verify-tag", workflow)
         self.assertNotIn("--clobber", workflow)
 
