@@ -535,6 +535,12 @@ class CiReleaseTests(unittest.TestCase):
             publish_job,
         )
         self.assertIn("--verify-tag", workflow)
+        # Releases are flipped out of draft automatically once assets validate,
+        # so tag pushes end with a public release without manual steps.
+        self.assertIn(
+            'gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false',
+            workflow,
+        )
         self.assertNotIn("--clobber", workflow)
 
     def test_release_workflow_uses_explicit_repo_for_release_commands(self) -> None:
@@ -591,6 +597,10 @@ class CiReleaseTests(unittest.TestCase):
         self.assertIn('gh release create "$RELEASE_TAG"', workflow)
         self.assertIn('gh release upload "$RELEASE_TAG" release-artifacts/* --repo "$GITHUB_REPOSITORY"', workflow)
         self.assertIn('gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets', workflow)
+        self.assertIn(
+            'gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false',
+            workflow,
+        )
 
     def test_release_workflow_attests_release_artifacts(self) -> None:
         workflow = (Path.cwd() / ".github" / "workflows" / "i18n-release.yml").read_text(
