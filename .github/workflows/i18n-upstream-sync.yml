@@ -1,0 +1,147 @@
+name: Upstream Sync
+run-name: Daily upstream sync check
+
+on:
+  schedule:
+    - cron: "30 2 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPOSITORY: LI-NA/zed-i18n
+
+jobs:
+  sync:
+    name: Check upstream and trigger release
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require sync token
+        env:
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          if [[ -z "$SYNC_TOKEN" ]]; then
+            echo "The SYNC_TOKEN repository secret is required to push sync commits and tags."
+            exit 1
+          fi
+
+      - name: Checkout zed-i18n
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - name: Detect latest upstream release tag
+        id: upstream
+        run: |
+          set -euo pipefail
+
+          git remote add upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
+          git fetch upstream --tags --quiet
+
+          latest="$(
+            git ls-remote --tags --refs upstream \
+              | awk -F/ '{print $NF}' \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-i18n\.[0-9]+$' \
+              | sort -V \
+              | tail -1
+          )"
+          if [[ -z "$latest" ]]; then
+            echo "No upstream release tags found."
+            exit 1
+          fi
+          echo "Latest upstream release tag: $latest"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+
+          if git merge-base --is-ancestor "refs/tags/${latest}^{commit}" HEAD; then
+            echo "Fork already contains $latest; nothing to do."
+            echo "synced=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "synced=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge upstream release
+        id: merge
+        if: steps.upstream.outputs.synced == 'false'
+        env:
+          LATEST_TAG: ${{ steps.upstream.outputs.latest }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git merge --no-ff --no-edit "refs/tags/${LATEST_TAG}"; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          else
+            git merge --abort
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open conflict issue
+        if: steps.merge.outputs.conflict == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LATEST_TAG: ${{ steps.upstream.outputs.latest }}
+        run: |
+          set -euo pipefail
+
+          title="Upstream sync conflict: ${LATEST_TAG}"
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number --jq 'length')"
+          if [[ "$existing" == "0" ]]; then
+            gh issue create \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$title" \
+              --body "Merging upstream release \`${LATEST_TAG}\` from ${UPSTREAM_REPOSITORY} into \`master\` hit conflicts with the local customizations. Resolve the merge manually, push \`master\`, then push a new \`v*-i18n.*\` tag (or re-run the Upstream Sync workflow)."
+          else
+            echo "Conflict issue already open; skipping duplicate."
+          fi
+          echo "Upstream merge conflicts require manual resolution."
+          exit 1
+
+      - name: Setup uv
+        if: steps.upstream.outputs.synced == 'false'
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Install Python
+        if: steps.upstream.outputs.synced == 'false'
+        run: uv python install 3.12
+
+      - name: Run test suite on merged tree
+        if: steps.upstream.outputs.synced == 'false'
+        run: uv run python -m unittest discover -s tests
+
+      - name: Push merge and release tag
+        if: steps.upstream.outputs.synced == 'false'
+        env:
+          LATEST_TAG: ${{ steps.upstream.outputs.latest }}
+        run: |
+          set -euo pipefail
+
+          zed_version="${LATEST_TAG%-i18n.*}"
+          if ! grep -q "zed_version = \"${zed_version}\"" config/project.toml; then
+            echo "config/project.toml does not pin ${zed_version} after the merge."
+            exit 1
+          fi
+
+          highest="$(
+            git tag --list "${zed_version}-i18n.*" \
+              | sed 's/.*-i18n\.//' \
+              | sort -n \
+              | tail -1
+          )"
+          next=$(( ${highest:-0} + 1 ))
+          NEW_TAG="${zed_version}-i18n.${next}"
+          echo "Releasing $NEW_TAG"
+
+          git push origin HEAD:master
+          git tag "$NEW_TAG"
+          git push origin "$NEW_TAG"

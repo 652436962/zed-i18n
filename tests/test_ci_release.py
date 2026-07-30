@@ -554,6 +554,25 @@ class CiReleaseTests(unittest.TestCase):
             workflow,
         )
 
+    def test_upstream_sync_workflow_checks_daily_and_tags_releases(self) -> None:
+        workflow = (
+            Path.cwd() / ".github" / "workflows" / "i18n-upstream-sync.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('- cron: "30 2 * * *"', workflow)
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("UPSTREAM_REPOSITORY: LI-NA/zed-i18n", workflow)
+        self.assertIn("runs-on: ubuntu-22.04", workflow)
+        # Tags are pushed with a PAT so the tag push triggers the release workflow;
+        # the default GITHUB_TOKEN cannot start downstream workflows.
+        self.assertIn("token: ${{ secrets.SYNC_TOKEN }}", workflow)
+        # Upstream tag names are validated before use in shell commands.
+        self.assertIn("grep -E '^v[0-9]+\\.[0-9]+\\.[0-9]+-i18n\\.[0-9]+$'", workflow)
+        self.assertIn("git merge --abort", workflow)
+        self.assertIn("gh issue create", workflow)
+        self.assertIn("uv run python -m unittest discover -s tests", workflow)
+        self.assertIn('git push origin "$NEW_TAG"', workflow)
+
     def test_publish_existing_release_assets_workflow_reuses_combined_artifact(self) -> None:
         workflow = (
             Path.cwd() / ".github" / "workflows" / "i18n-publish-existing.yml"
