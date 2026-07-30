@@ -35,6 +35,18 @@ Zed-i18n is a tool that extracts UI strings from release versions of the [Zed](h
 
 > Zed-i18n is a community project unaffiliated with Zed Industries and is not officially endorsed or certified by Zed Industries.
 
+## Why This Fork
+
+This repository is a fork of [LI-NA/zed-i18n](https://github.com/LI-NA/zed-i18n) rather than a set of patches submitted upstream, because its goals are personal defaults that would not fit the general-purpose upstream project:
+
+- **Chinese-only, Linux-only builds.** Upstream builds 13 languages across macOS, Windows, and Linux. This fork only needs `zh-CN` on Linux (x86_64 + aarch64), which cuts CI time and cost dramatically. Changing upstream's defaults would break everyone else's use case.
+- **`.deb` packaging.** Upstream ships Linux builds as `tar.gz` only. This fork additionally produces `.deb` packages so it can be installed and upgraded cleanly on Debian/Ubuntu systems.
+- **Older glibc compatibility.** x86_64 builds run on `ubuntu-22.04` runners (instead of newer images) so the binaries work on older distributions; aarch64 stays on `ubuntu-24.04-arm` because the 22.04 ARM runner runs out of resources during linking.
+- **Fully automated releases.** Pushing a `v*-i18n.*` tag builds, packages, and publishes a public (non-draft) GitHub Release end to end, with no manual publishing step.
+- **Daily upstream sync.** A scheduled workflow checks upstream for new releases every day, merges them automatically (opening an issue on conflicts), runs the test suite, and tags a new build — so Chinese builds keep up with upstream without manual work.
+
+None of these changes could be pushed to the original repository (no write access there), and most of them are opinionated defaults rather than improvements upstream would want, so a separate repository is the cleanest way to maintain them.
+
 ## Supported Languages
 
 Translations for 13 languages are currently bundled under `translations/`. All current translations are AI-generated; contributions from native speakers are welcome.
