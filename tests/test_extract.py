@@ -1,6 +1,8 @@
+from pathlib import Path
+import tempfile
 import unittest
 
-from tools.zed_i18n.extract import extract_ui_strings_from_source
+from tools.zed_i18n.extract import extract_repository, extract_ui_strings_from_source
 
 
 class ExtractTests(unittest.TestCase):
@@ -2847,6 +2849,47 @@ class ExtractTests(unittest.TestCase):
             {occurrence.source for occurrence in occurrences},
             {"Connecting…", "Sign In with GitHub"},
         )
+
+    def test_extracts_nested_contact_tooltip_format_branches(self) -> None:
+        source = "\n".join(
+            [
+                "fn render(online: bool, busy: bool, cx: &mut App) {",
+                "    div().tooltip(move |_, cx| {",
+                "        let text = if !online {",
+                '            format!(" {} is Offline", &username)',
+                "        } else if busy {",
+                '            format!(" {} is on a Call", &username)',
+                "        } else {",
+                "            let room = ActiveCall::global(cx).read(cx).room();",
+                "            if room.is_some() {",
+                '                format!("Invite {} to Join Call", &username)',
+                "            } else {",
+                '                format!("Call {}", &username)',
+                "            }",
+                "        };",
+                "        Tooltip::simple(text, cx)",
+                "    });",
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/collab_ui/src/collab_panel.rs",
+        )
+
+        by_source = {occurrence.source: occurrence for occurrence in occurrences}
+        self.assertEqual(
+            set(by_source),
+            {
+                " {} is Offline",
+                " {} is on a Call",
+                "Invite {} to Join Call",
+                "Call {}",
+            },
+        )
+        self.assertEqual(by_source["Invite {} to Join Call"].kind, "tooltip")
+        self.assertEqual(by_source["Call {}"].call, "contact_call_tooltip")
 
     def test_extracts_git_panel_dynamic_labels(self) -> None:
         source = "\n".join(
@@ -6425,6 +6468,58 @@ class ExtractTests(unittest.TestCase):
             {occurrence.source for occurrence in occurrences},
             descriptions,
         )
+
+    def test_composite_rule_claims_only_the_approved_format_literal(self) -> None:
+        source = "\n".join(
+            [
+                "impl Render for TokenUsageTooltip {",
+                "    fn render(&mut self) {",
+                '        Label::new(format!("{} {}", left, right));',
+                "        Button::new(",
+                '            "open-project-rules",',
+                "            format!(",
+                '                "{} {}",',
+                "                project_rules_count,",
+                '                pluralize("project rule", project_rules_count)',
+                "            ),",
+                "        );",
+                "    }",
+                "}",
+            ]
+        )
+
+        occurrences = extract_ui_strings_from_source(
+            source,
+            relative_path="crates/agent_ui/src/conversation_view/thread_view.rs",
+        )
+        generic = [occurrence for occurrence in occurrences if occurrence.source == "{} {}"]
+        composite = [
+            occurrence for occurrence in occurrences if occurrence.source == "{} project rules"
+        ]
+
+        self.assertEqual(len(generic), 1)
+        self.assertEqual(len(composite), 1)
+        self.assertEqual(composite[0].call, "Button::new")
+        self.assertEqual(composite[0].kind, "button")
+        self.assertEqual(composite[0].composite_rule_id, "agent.project_rules_count")
+        self.assertIn("complete compact count label", composite[0].translation_note.lower())
+        self.assertNotEqual(
+            (generic[0].start_byte, generic[0].end_byte),
+            (composite[0].start_byte, composite[0].end_byte),
+        )
+
+    def test_repository_extract_fails_when_required_composite_rule_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source_path = root / "crates" / "example" / "src" / "lib.rs"
+            source_path.parent.mkdir(parents=True)
+            source_path.write_text('fn render() { Label::new("Visible"); }', encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "required composite message rules not found: agent.project_rules_count",
+            ):
+                extract_repository(root)
 
 
 if __name__ == "__main__":

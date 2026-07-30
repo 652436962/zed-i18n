@@ -4,7 +4,12 @@ import unittest
 from pathlib import Path
 
 from tools.zed_i18n.ci_release import patch_remote_server_build
-from tools.zed_i18n.config import load_project_config, zed_checkout_path
+from tools.zed_i18n.composite_messages import find_composite_message_matches
+from tools.zed_i18n.config import (
+    load_project_config,
+    zed_checkout_path,
+    zed_clean_extract_checkout_path,
+)
 from tools.zed_i18n.distribution import apply_distribution_patches, load_distribution_config
 
 
@@ -17,6 +22,7 @@ PATCH_TARGETS = (
     "script/bundle-windows.ps1",
     "crates/windows_resources/src/windows_resources.rs",
     "crates/explorer_command_injector/AppxManifest.xml",
+    "crates/explorer_command_injector/src/explorer_command_injector.rs",
     "crates/zed/resources/windows/zed.iss",
     "crates/auto_update/src/auto_update.rs",
     "crates/zed/src/zed/app_menus.rs",
@@ -51,6 +57,19 @@ class ZedPatchContractTests(unittest.TestCase):
             self.fail(f"required Zed patch contract checkout does not exist: {path}")
         self.skipTest(f"Zed checkout not available for patch contract test: {path}")
 
+    def resolve_clean_extract_zed_root(self) -> Path:
+        override = os.environ.get("ZED_I18N_PATCH_CONTRACT_ZED_ROOT")
+        if override:
+            path = self.source_zed_root.with_name(f"{self.source_zed_root.name}-clean-extract")
+        else:
+            path = zed_clean_extract_checkout_path(self.root, load_project_config(self.root))
+
+        if path.exists():
+            return path
+        if self.require_contract:
+            self.fail(f"required clean extract Zed checkout does not exist: {path}")
+        self.skipTest(f"Clean extract Zed checkout not available for composite contract: {path}")
+
     def copy_patch_targets(self) -> None:
         for relative in PATCH_TARGETS:
             source = self.source_zed_root / relative
@@ -83,6 +102,10 @@ class ZedPatchContractTests(unittest.TestCase):
         auto_update = (
             self.zed_root / "crates/auto_update/src/auto_update.rs"
         ).read_text(encoding="utf-8")
+        explorer_command_injector = (
+            self.zed_root
+            / "crates/explorer_command_injector/src/explorer_command_injector.rs"
+        ).read_text(encoding="utf-8")
         bundle_linux = (self.zed_root / "script/bundle-linux").read_text(encoding="utf-8")
         bundle_macos = (self.zed_root / "script/bundle-mac").read_text(encoding="utf-8")
         bundle_windows = (
@@ -93,6 +116,11 @@ class ZedPatchContractTests(unittest.TestCase):
         self.assertIn('ReleaseChannel::Stable => "dev.zed-i18n.Zed"', release_channel)
         self.assertIn('identifier = "dev.zed-i18n.Zed"', zed_cargo_toml)
         self.assertIn("get_i18n_release_asset", auto_update)
+        self.assertIn(
+            '"Software\\\\Classes\\\\ZedI18nContextMenu"',
+            explorer_command_injector,
+        )
+        self.assertIn('HSTRING::from("Open with Zed i18n")', explorer_command_injector)
         self.assertNotIn("--package remote_server", bundle_linux)
         self.assertNotIn("--package remote_server", bundle_macos)
         self.assertNotIn("BuildRemoteServer", bundle_windows)
@@ -116,6 +144,22 @@ class ZedPatchContractTests(unittest.TestCase):
         self.assertIn("|| rc=$?", bundle_macos)
         self.assertIn('if mv "${tmp_dir}/git" "${target_binary}"; then', bundle_macos)
         self.assertIn('rm -rf "$tmp_dir"', bundle_macos)
+
+    def test_clean_extract_checkout_matches_project_rules_composite_contract(self) -> None:
+        clean_extract_root = self.resolve_clean_extract_zed_root()
+        relative_path = "crates/agent_ui/src/conversation_view/thread_view.rs"
+        source = (clean_extract_root / relative_path).read_bytes()
+
+        matches = find_composite_message_matches(source, relative_path)
+
+        self.assertEqual([match.rule.id for match in matches], ["agent.project_rules_count"])
+        completion_provider = (
+            clean_extract_root / "crates/agent_ui/src/completion_provider.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "pub(crate) fn pluralize(noun: &str, count: usize) -> String",
+            completion_provider,
+        )
 
 
 if __name__ == "__main__":

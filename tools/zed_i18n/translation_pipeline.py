@@ -338,6 +338,8 @@ def _translation_entry(
         "occurrences": occurrences,
         "code_context": _code_context(zed_root, first_occurrence, context_lines),
     }
+    if translation_note := first_occurrence.get("translation_note"):
+        entry["translation_note"] = translation_note
     if context_group:
         entry["context_group"] = context_group
     if vscode_memory and _source_can_use_vscode_references(source):

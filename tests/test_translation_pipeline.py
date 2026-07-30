@@ -55,6 +55,7 @@ class TranslationPipelineTests(unittest.TestCase):
                             "kind": "callout_title",
                             "start_byte": 0,
                             "end_byte": 0,
+                            "translation_note": "Treat this as one complete virtual message.",
                         }
                     ],
                 },
@@ -114,12 +115,18 @@ class TranslationPipelineTests(unittest.TestCase):
         batch = self._read_json(batch_path)
         self.assertEqual(batch["entries"][0]["source"], "Rate Limit Reached")
         self.assertEqual(batch["entries"][0]["kind"], "callout_title")
+        self.assertIn("translation_note", batch["entries"][0])
+        self.assertEqual(
+            batch["entries"][0]["translation_note"],
+            "Treat this as one complete virtual message.",
+        )
         self.assertIn('        "Rate Limit Reached",', batch["entries"][0]["code_context"])
         self.assertIn("results/batch-001.json", batch["output"]["result_file"])
         self.assertEqual(batch["output"]["format"], {"source": "translation"})
         prompt = prompt_path.read_text(encoding="utf-8")
         self.assertIn("Base ko-KR prompt", prompt)
         self.assertIn("Rate Limit Reached", prompt)
+        self.assertIn("Treat this as one complete virtual message.", prompt)
         self.assertIn("prompt-component context", prompt)
         self.assertIn("source_comment", prompt)
         self.assertIn("settings_enum_variant_label", prompt)
