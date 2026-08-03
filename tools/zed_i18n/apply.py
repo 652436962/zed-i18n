@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import re
 
+from .composite_messages import rewrite_composite_message_source
 from .rust_strings import (
     parse_rust_string_literal,
     rust_format_placeholders_compatible,
@@ -108,6 +109,20 @@ def _apply_one(
         return False
 
     text = file_path.read_text(encoding="utf-8")
+    composite_rule_id = occurrence.get("composite_rule_id")
+    if isinstance(composite_rule_id, str):
+        rewritten = rewrite_composite_message_source(
+            text,
+            relative_file,
+            composite_rule_id,
+            translation,
+        )
+        if rewritten is None:
+            return False
+        if rewritten != text:
+            file_path.write_text(rewritten, encoding="utf-8")
+        return True
+
     lines = text.splitlines(keepends=True)
     index = line_number - 1
     if index < 0 or index >= len(lines):

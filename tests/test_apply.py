@@ -779,6 +779,85 @@ class ApplyTests(unittest.TestCase):
         self.assertIn("\\u{2039}name\\u{203A}", text)
         self.assertNotIn("\\\\u{2039}", text)
 
+    def test_applies_composite_translation_to_verified_format_literal(self) -> None:
+        source_path = self._write_project_rules_source("open-project-rules")
+        manifest = self._project_rules_manifest()
+
+        report = apply_translations(
+            self.root,
+            manifest,
+            {"{} project rules": "프로젝트 규칙 {}개"},
+        )
+
+        text = source_path.read_text(encoding="utf-8")
+        self.assertEqual(report.applied, ["{} project rules"])
+        self.assertEqual(report.stale, [])
+        self.assertIn('"프로젝트 규칙 {0}개{1:.0}"', text)
+        self.assertIn('let unrelated = format!("{} {}", left, right);', text)
+
+    def test_reports_composite_translation_stale_on_structural_drift(self) -> None:
+        source_path = self._write_project_rules_source("other-button")
+        before = source_path.read_text(encoding="utf-8")
+
+        report = apply_translations(
+            self.root,
+            self._project_rules_manifest(),
+            {"{} project rules": "프로젝트 규칙 {}개"},
+        )
+
+        self.assertEqual(report.applied, [])
+        self.assertEqual(report.stale, ["{} project rules"])
+        self.assertEqual(source_path.read_text(encoding="utf-8"), before)
+
+    def _write_project_rules_source(self, anchor: str) -> Path:
+        source_path = (
+            self.root
+            / "crates"
+            / "agent_ui"
+            / "src"
+            / "conversation_view"
+            / "thread_view.rs"
+        )
+        source_path.parent.mkdir(parents=True)
+        source_path.write_text(
+            "\n".join(
+                [
+                    "impl Render for TokenUsageTooltip {",
+                    "    fn render(&mut self) {",
+                    '        let unrelated = format!("{} {}", left, right);',
+                    "        Button::new(",
+                    f'            "{anchor}",',
+                    "            format!(",
+                    '                "{} {}",',
+                    "                project_rules_count,",
+                    '                pluralize("project rule", project_rules_count)',
+                    "            ),",
+                    "        );",
+                    "    }",
+                    "}",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return source_path
+
+    @staticmethod
+    def _project_rules_manifest() -> dict[str, dict[str, object]]:
+        return {
+            "{} project rules": {
+                "status": "accepted",
+                "occurrences": [
+                    {
+                        "file": "crates/agent_ui/src/conversation_view/thread_view.rs",
+                        "line": 7,
+                        "call": "Button::new",
+                        "kind": "button",
+                        "composite_rule_id": "agent.project_rules_count",
+                    }
+                ],
+            }
+        }
+
 
 if __name__ == "__main__":
     unittest.main()

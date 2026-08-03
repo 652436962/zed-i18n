@@ -721,7 +721,7 @@ def patch_windows_remote_server_build(path: Path) -> None:
     # Create zipped remote server binary
     $remoteServerSrc = (Resolve-Path ".\\$CargoOutDir\\remote_server.exe").Path
 
-    if ($env:CI) {
+    if ($canCodeSign) {
         Write-Output "Code signing remote_server.exe"
         & "$innoDir\\sign.ps1" $remoteServerSrc
     }

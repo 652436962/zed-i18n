@@ -127,6 +127,19 @@ APP_ID="dev.zed.Zed"
 <desktop5:Verb Id="OpenWithZed" Clsid="6a1f6b13-3b82-48a1-9e06-7bb0a6d0bffd" />
 <com:SurrogateServer DisplayName="Zed">
 """,
+            "crates/explorer_command_injector/src/explorer_command_injector.rs": """
+fn GetTitle(&self) -> Result<windows_core::PWSTR> {
+    let command_description =
+        retrieve_command_description().unwrap_or(HSTRING::from("Open with Zed"));
+}
+
+fn retrieve_command_description() -> Result<HSTRING> {
+    #[cfg(all(feature = "stable", not(feature = "preview"), not(feature = "nightly")))]
+    const REG_PATH: &str = "Software\\\\Classes\\\\ZedEditorContextMenu";
+    #[cfg(all(feature = "preview", not(feature = "stable"), not(feature = "nightly")))]
+    const REG_PATH: &str = "Software\\\\Classes\\\\ZedEditorPreviewContextMenu";
+}
+""",
             "crates/zed/resources/windows/zed.iss": """
 AppPublisher=Zed Industries
 AppPublisherURL=https://www.zed.dev/
@@ -271,6 +284,10 @@ fn app_menus() -> Vec<Menu> {
         windows_resources = (
             self.zed_root / "crates/windows_resources/src/windows_resources.rs"
         ).read_text(encoding="utf-8")
+        explorer_command_injector = (
+            self.zed_root
+            / "crates/explorer_command_injector/src/explorer_command_injector.rs"
+        ).read_text(encoding="utf-8")
         auto_update = (self.zed_root / "crates/auto_update/src/auto_update.rs").read_text(
             encoding="utf-8"
         )
@@ -300,6 +317,18 @@ fn app_menus() -> Vec<Menu> {
         self.assertIn('$appExeName = "Zed"', bundle_windows)
         self.assertIn('"stable" => ("app-icon.ico", "Zed i18n")', windows_resources)
         self.assertIn('"preview" => ("app-icon-preview.ico", "Zed Preview")', windows_resources)
+        self.assertIn(
+            'const REG_PATH: &str = "Software\\\\Classes\\\\ZedI18nContextMenu";',
+            explorer_command_injector,
+        )
+        self.assertIn(
+            'HSTRING::from("Open with Zed i18n")',
+            explorer_command_injector,
+        )
+        self.assertIn(
+            '"Software\\\\Classes\\\\ZedEditorPreviewContextMenu"',
+            explorer_command_injector,
+        )
         self.assertIn("ZED_I18N_UPDATE_MANIFEST_URL", auto_update)
         self.assertIn("get_i18n_release_asset", auto_update)
         self.assertIn('"zed-remote-server" => return Ok(None)', auto_update)

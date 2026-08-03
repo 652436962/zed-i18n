@@ -20,6 +20,43 @@ class RustStringTests(unittest.TestCase):
             ["{path:?}", "{error}"],
         )
 
+    def test_allows_equivalent_explicit_positional_reordering(self) -> None:
+        self.assertTrue(rust_format_placeholders_compatible("{} {}", "{1} {0}"))
+        self.assertTrue(rust_format_placeholders_compatible("{:?} {}", "{1} {0:?}"))
+
+    def test_rejects_wrong_positional_arguments(self) -> None:
+        self.assertFalse(rust_format_placeholders_compatible("{} {}", "{0} {0}"))
+        self.assertFalse(rust_format_placeholders_compatible("{} {}", "{2} {0}"))
+        self.assertFalse(rust_format_placeholders_compatible("{} {}", "{1:?} {0}"))
+
+    def test_rejects_unescaped_braces(self) -> None:
+        self.assertFalse(rust_format_placeholders_compatible("Value {}", "값 {} {"))
+        self.assertFalse(rust_format_placeholders_compatible("Value {}", "값 {} }"))
+        self.assertTrue(rust_format_placeholders_compatible("Value {{}} {}", "값 {{}} {}"))
+
+    def test_keeps_literal_braces_for_non_format_source(self) -> None:
+        self.assertTrue(
+            rust_format_placeholders_compatible(
+                'Example: {"log": {"client": "warn"}}',
+                '예: {"log": {"client": "warn"}}',
+            )
+        )
+
+    def test_rewrites_virtual_positions_to_real_positions(self) -> None:
+        try:
+            from tools.zed_i18n.rust_strings import (
+                rewrite_rust_positional_placeholders,
+                rust_zero_precision_placeholder,
+            )
+        except ImportError:
+            self.fail("positional placeholder rewrite helpers are missing")
+
+        self.assertEqual(
+            rewrite_rust_positional_placeholders("{1} / {}", (0, 2)),
+            "{2} / {0}",
+        )
+        self.assertEqual(rust_zero_precision_placeholder(1), "{1:.0}")
+
     def test_ignores_rust_unicode_escape_braces(self) -> None:
         self.assertEqual(rust_format_placeholders("New Thread\\u{2026}"), [])
 

@@ -4,6 +4,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 import re
 
+from .composite_messages import (
+    find_composite_message_matches,
+    required_composite_message_rule_ids,
+)
 from .rust_ast import (
     iter_rust_files as _rust_files,
     make_rust_parser as _rust_parser,
@@ -22,11 +26,13 @@ class StringOccurrence:
     kind: str
     start_byte: int
     end_byte: int
+    composite_rule_id: str | None = None
+    translation_note: str | None = None
 
     def to_manifest_occurrence(self) -> dict[str, object]:
         data = asdict(self)
         data.pop("source")
-        return data
+        return {key: value for key, value in data.items() if value is not None}
 
 
 @dataclass(frozen=True)
@@ -720,16 +726,42 @@ def extract_ui_strings_from_source(source: str, relative_path: str) -> list[Stri
     occurrences.extend(_extract_text_for_keystroke_occurrences(source, relative_path))
     occurrences.extend(_extract_prompt_error_detail_occurrences(source_bytes, relative_path))
     occurrences.extend(_extract_settings_enum_variant_labels(source, relative_path))
+    composite_matches = find_composite_message_matches(source_bytes, relative_path)
+    claimed_spans = {
+        (match.literal_start_byte, match.literal_end_byte) for match in composite_matches
+    }
+    occurrences = [
+        occurrence
+        for occurrence in occurrences
+        if (occurrence.start_byte, occurrence.end_byte) not in claimed_spans
+    ]
+    occurrences.extend(
+        StringOccurrence(
+            source=match.rule.virtual_source,
+            file=relative_path,
+            line=match.line,
+            call=match.rule.call,
+            kind=match.rule.kind,
+            start_byte=match.literal_start_byte,
+            end_byte=match.literal_end_byte,
+            composite_rule_id=match.rule.id,
+            translation_note=match.rule.translation_note,
+        )
+        for match in composite_matches
+    )
     return _dedupe_occurrences(occurrences)
 
 
 def extract_repository(zed_root: Path) -> tuple[dict[str, str], dict[str, dict[str, object]]]:
     catalog: dict[str, str] = {}
     manifest: dict[str, dict[str, object]] = {}
+    matched_composite_rule_ids: set[str] = set()
     for rust_file in _rust_files(zed_root):
         relative_path = rust_file.relative_to(zed_root).as_posix()
         source = rust_file.read_text(encoding="utf-8")
         for occurrence in extract_ui_strings_from_source(source, relative_path):
+            if occurrence.composite_rule_id is not None:
+                matched_composite_rule_ids.add(occurrence.composite_rule_id)
             catalog.setdefault(occurrence.source, occurrence.source)
             entry = manifest.setdefault(
                 occurrence.source,
@@ -739,6 +771,10 @@ def extract_repository(zed_root: Path) -> tuple[dict[str, str], dict[str, dict[s
                 },
             )
             entry["occurrences"].append(occurrence.to_manifest_occurrence())
+    missing_rule_ids = required_composite_message_rule_ids() - matched_composite_rule_ids
+    if missing_rule_ids:
+        missing = ", ".join(sorted(missing_rule_ids))
+        raise ValueError(f"required composite message rules not found: {missing}")
     return catalog, manifest
 
 
@@ -2902,6 +2938,8 @@ def _line_patterns_for_path(
         patterns.extend(GIT_PANEL_LINE_PATTERNS)
     if _is_project_panel_path(relative_path):
         patterns.extend(PROJECT_PANEL_LINE_PATTERNS)
+    if _is_collab_panel_path(relative_path):
+        patterns.extend(COLLAB_PANEL_LINE_PATTERNS)
     if _is_agent_model_selector_path(relative_path):
         patterns.extend(AGENT_MODEL_SELECTOR_LINE_PATTERNS)
     if _is_agent_manage_profiles_modal_path(relative_path):
@@ -4572,6 +4610,15 @@ AGENT_THREAD_VIEW_LINE_PATTERNS: tuple[LinePattern, ...] = (
             r'\bformat!\(\s*("(?:Stop Following the \{\}|Stop Following \{\}|Follow the \{\}|Follow \{\})")'
         ),
         "agent_follow_tooltip",
+        "tooltip",
+        1,
+    ),
+)
+
+COLLAB_PANEL_LINE_PATTERNS: tuple[LinePattern, ...] = (
+    LinePattern(
+        re.compile(r'\bformat!\(\s*("(?:Invite \{\} to Join Call|Call \{\})")'),
+        "contact_call_tooltip",
         "tooltip",
         1,
     ),

@@ -995,6 +995,32 @@ gzip -f --stdout --best target/$target_triple/release/remote_server > target/zed
         )
         (script_dir / "bundle-windows.ps1").write_text(
             """
+function BuildRemoteServer {
+    Write-Output "Building remote_server for $target"
+    cargo build --release --package remote_server --target $target
+
+    # Create zipped remote server binary
+    $remoteServerSrc = (Resolve-Path ".\\$CargoOutDir\\remote_server.exe").Path
+
+    if ($canCodeSign) {
+        Write-Output "Code signing remote_server.exe"
+        & "$innoDir\\sign.ps1" $remoteServerSrc
+    }
+
+    $remoteServerDst = "$env:ZED_WORKSPACE\\target\\zed-remote-server-windows-$Architecture.zip"
+    Write-Output "Compressing remote_server to $remoteServerDst"
+    Compress-Archive -Path $remoteServerSrc -DestinationPath $remoteServerDst -Force
+
+    Write-Output "Remote server compressed successfully"
+}
+
+function ZipZedAndItsFriendsDebug {
+    $items = @(
+        ".\\$CargoOutDir\\explorer_command_injector.pdb",
+        ".\\$CargoOutDir\\remote_server.pdb"
+    )
+}
+
 BuildZedAndItsFriends
 BuildRemoteServer
 ZipZedAndItsFriendsDebug
@@ -1016,6 +1042,9 @@ ZipZedAndItsFriendsDebug
         self.assertIn("function create_dmg_with_retry()", macos)
         self.assertIn("Retrying git binary download", macos)
         self.assertNotIn("BuildRemoteServer", windows)
+        self.assertNotIn("--package remote_server", windows)
+        self.assertNotIn("zed-remote-server-windows", windows)
+        self.assertNotIn("remote_server.pdb", windows)
 
     def test_patches_macos_bundle_script_to_retry_hdiutil_create_locally(self) -> None:
         script = self.temp_root / "bundle-mac"

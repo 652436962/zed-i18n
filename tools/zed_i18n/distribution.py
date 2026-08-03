@@ -244,6 +244,33 @@ def patch_windows_resources(zed_root: Path, config: DistributionConfig) -> None:
     ]
     _write(appx, _replace_many(text, replacements, appx))
 
+    explorer_command_injector = (
+        zed_root
+        / "crates"
+        / "explorer_command_injector"
+        / "src"
+        / "explorer_command_injector.rs"
+    )
+    text = _read(explorer_command_injector)
+    registry_path = _rust_string_literal(
+        f"Software\\Classes\\{config.windows_registry_value}ContextMenu"
+    )
+    shell_title = _rust_string_literal(f"Open with {config.product_name}")
+    replacements = [
+        (
+            'retrieve_command_description().unwrap_or(HSTRING::from("Open with Zed"))',
+            f"retrieve_command_description().unwrap_or(HSTRING::from({shell_title}))",
+        ),
+        (
+            'const REG_PATH: &str = "Software\\\\Classes\\\\ZedEditorContextMenu";',
+            f"const REG_PATH: &str = {registry_path};",
+        ),
+    ]
+    _write(
+        explorer_command_injector,
+        _replace_many(text, replacements, explorer_command_injector),
+    )
+
     installer = zed_root / "crates" / "zed" / "resources" / "windows" / "zed.iss"
     text = _read(installer)
     replacements = [('AppPublisher=Zed Industries', f"AppPublisher={config.publisher_name}")]
