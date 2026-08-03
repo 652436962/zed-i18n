@@ -512,6 +512,19 @@ jobs:
       contents: write
       actions: read
     steps:
+      - name: Resolve publish token
+        id: token
+        env:
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          if [[ -n "$SYNC_TOKEN" ]]; then
+            echo "value=$SYNC_TOKEN" >> "$GITHUB_OUTPUT"
+            echo "Using SYNC_TOKEN for release publish"
+          else
+            echo "value=${{ secrets.GITHUB_TOKEN }}" >> "$GITHUB_OUTPUT"
+            echo "SYNC_TOKEN not set; falling back to GITHUB_TOKEN"
+          fi
+
       - name: Download combined artifact
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
@@ -520,7 +533,7 @@ jobs:
 
       - name: Upload to draft GitHub Release
         env:
-          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          GH_TOKEN: ${{ steps.token.outputs.value }}
           INPUT_RELEASE_TAG: ${{ inputs.release_tag || '' }}
         run: |
           if [[ "$GITHUB_REF_TYPE" != "tag" && -z "$INPUT_RELEASE_TAG" ]]; then
@@ -547,7 +560,7 @@ jobs:
 
       - name: Validate release assets
         env:
-          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          GH_TOKEN: ${{ steps.token.outputs.value }}
           INPUT_RELEASE_TAG: ${{ inputs.release_tag || '' }}
         run: |
           RELEASE_TAG="${INPUT_RELEASE_TAG:-$GITHUB_REF_NAME}"
@@ -563,7 +576,7 @@ jobs:
 
       - name: Publish release
         env:
-          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          GH_TOKEN: ${{ steps.token.outputs.value }}
           INPUT_RELEASE_TAG: ${{ inputs.release_tag || '' }}
         run: |
           RELEASE_TAG="${INPUT_RELEASE_TAG:-$GITHUB_REF_NAME}"
